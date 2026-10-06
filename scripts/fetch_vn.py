@@ -494,26 +494,41 @@ def try_synthetic_vn30(symbol, loai):
         print(f"  SynVN30: chỉ có {len(stock_data)} stock files, cần ≥10")
         return None
     all_ts = sorted(set(ts for d in stock_data.values() for ts in d['t']))
-    lookups = {s: dict(zip(d['t'], d['c'])) for s, d in stock_data.items()}
-    t_out, c_out = [], []
+    # tạo lookup cho cả o, h, l, c
+    lo_c = {s: dict(zip(d['t'], d['c'])) for s, d in stock_data.items()}
+    lo_o = {s: dict(zip(d['t'], d['o'])) for s, d in stock_data.items()}
+    lo_h = {s: dict(zip(d['t'], d['h'])) for s, d in stock_data.items()}
+    lo_l = {s: dict(zip(d['t'], d['l'])) for s, d in stock_data.items()}
+    t_out, o_out, h_out, l_out, c_out = [], [], [], [], []
     idx = 1200.0
-    prev = {}
+    prev_c = {}
     for ts in all_ts:
-        closes = {s: lookups[s][ts] for s in stock_data if ts in lookups[s]}
+        closes = {s: lo_c[s][ts] for s in stock_data if ts in lo_c[s]}
         if len(closes) < 10:
             continue
-        if prev:
-            rets = [(closes[s] / prev[s] - 1) for s in closes if s in prev and prev[s] > 0]
-            if rets:
-                idx *= (1 + sum(rets) / len(rets))
-        prev = closes
-        v = round(idx, 2)
+        c_val = o_val = h_val = l_val = round(idx, 2)
+        if prev_c:
+            common = [s for s in closes if s in prev_c and prev_c[s] > 0]
+            if common:
+                rets_c = [(closes[s]                  / prev_c[s] - 1) for s in common]
+                rets_o = [(lo_o[s].get(ts, closes[s]) / prev_c[s] - 1) for s in common]
+                rets_h = [(lo_h[s].get(ts, closes[s]) / prev_c[s] - 1) for s in common]
+                rets_l = [(lo_l[s].get(ts, closes[s]) / prev_c[s] - 1) for s in common]
+                avg_c = sum(rets_c) / len(rets_c)
+                avg_o = sum(rets_o) / len(rets_o)
+                c_val = round(idx * (1 + avg_c), 2)
+                o_val = round(idx * (1 + avg_o), 2)
+                h_val = round(max(idx * (1 + max(rets_h)), c_val, o_val), 2)
+                l_val = round(min(idx * (1 + min(rets_l)), c_val, o_val), 2)
+                idx = c_val
+        prev_c = closes
         t_out.append(ts)
-        c_out.append(v)
+        o_out.append(o_val); h_out.append(h_val)
+        l_out.append(l_val); c_out.append(c_val)
     if len(t_out) < 10:
         return None
     print(f"  SynVN30: tổng hợp từ {len(stock_data)} cổ phiếu → {len(t_out)} bars")
-    return {'t': t_out, 'o': c_out, 'h': c_out, 'l': c_out, 'c': c_out, 'v': [0]*len(t_out)}
+    return {'t': t_out, 'o': o_out, 'h': h_out, 'l': l_out, 'c': c_out, 'v': [0]*len(t_out)}
 
 
 SOURCES = [
