@@ -47,13 +47,8 @@ const DANH_SACH_VN = [
   { ma: 'VPB', ten: 'VPB', loai: 'stock' },
 ];
 
-const ENTRADE_HOST = 'https://services.entrade.com.vn/chart-api/v2/charts';
-const CORS_PROXY  = 'https://corsproxy.io/?';
-// Map khung giờ app → resolution Entrade
-const KHUNG_VN = {
-  '15m':'15','30m':'30','1h':'60','2h':'60','4h':'60','8h':'60','12h':'60',
-  '1d':'D','2d':'D','3d':'D','1w':'W','1M':'M',
-};
+// VNDirect finfo — API web của VNDirect, hỗ trợ CORS từ trình duyệt
+const VNDIRECT_BASE = 'https://finfo-api.vndirect.com.vn/v4/stock_prices';
 
 // [mã Binance, nhãn hiển thị]
 const KHUNG_GIO = [
@@ -326,19 +321,21 @@ async function taiTienTo(ma, nenDau) {
   return cacPhan.flat();
 }
 
-// ---------- 5b. ENTRADE/DNSE (cổ phiếu VN) ----------
-// loai: 'stock' | 'index'
-async function goiEntrade(ma, loai, resolution, from, to) {
-  const type = loai === 'index' ? 'index' : 'stock';
-  const target = `${ENTRADE_HOST}/${type}?symbol=${ma}&resolution=${resolution}&from=${from}&to=${to}`;
-  const res = await fetch(CORS_PROXY + encodeURIComponent(target));
+// ---------- 5b. VNDirect finfo (cổ phiếu + chỉ số VN) ----------
+function _ngayStr(unix) {
+  return new Date(unix * 1000).toISOString().slice(0, 10);
+}
+async function goiVNDirect(ma, from, to) {
+  const q = `code:${ma}~date:gte:${_ngayStr(from)}~date:lte:${_ngayStr(to)}`;
+  const url = `${VNDIRECT_BASE}/?sort=date&q=${q}&size=1000&page=1`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Không tải được dữ liệu VN');
   const json = await res.json();
-  if (!json.t || !json.t.length) throw new Error('Không có dữ liệu cho mã này');
-  return json.t.map((ts, i) => ({
-    time: ts,
-    open: json.o[i], high: json.h[i], low: json.l[i], close: json.c[i],
-    volume: json.v ? json.v[i] : 0,
+  if (!json.data?.length) throw new Error('Không có dữ liệu cho mã này');
+  return json.data.map((item) => ({
+    time: Math.floor(new Date(item.date + 'T08:30:00+07:00').getTime() / 1000),
+    open: item.open, high: item.high, low: item.low, close: item.close,
+    volume: item.nmVolume || 0,
   })).filter((b) => b.open > 0);
 }
 
@@ -469,11 +466,10 @@ async function napBieuDo() {
   try {
     let nen, tienTo = [];
     if (infoVN) {
-      // --- Cổ phiếu VN: dùng TCBS ---
+      // --- Cổ phiếu VN: VNDirect finfo (chỉ hỗ trợ dữ liệu ngày) ---
       const now = Math.floor(Date.now() / 1000);
-      const from = now - 3 * 365 * 24 * 3600; // 3 năm lịch sử
-      const res = KHUNG_VN[khungHienTai] || 'D';
-      nen = await goiEntrade(maHienTai, infoVN.loai, res, from, now);
+      const from = now - 3 * 365 * 24 * 3600;
+      nen = await goiVNDirect(maHienTai, from, now);
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
       // --- Crypto: dùng Binance ---
@@ -555,9 +551,9 @@ let timerGiaVN = null;
 async function capNhatGiaVN() {
   const now = Math.floor(Date.now() / 1000);
   const from = now - 4 * 24 * 3600; // 4 ngày để chắc có 2 phiên
-  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
+  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma }) => {
     try {
-      const bars = await goiEntrade(ma, loai, 'D', from, now);
+      const bars = await goiVNDirect(ma, from, now);
       if (!bars.length) return;
       const last = bars[bars.length - 1];
       const prev = bars.length > 1 ? bars[bars.length - 2] : null;
