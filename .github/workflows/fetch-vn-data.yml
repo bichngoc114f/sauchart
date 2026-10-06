@@ -1,0 +1,29 @@
+name: Cập nhật dữ liệu VN stocks
+
+on:
+  schedule:
+    # Mỗi 30 phút, Thứ 2–6, 2h–9h UTC (= 9h–16h Việt Nam)
+    - cron: '0,30 2-9 * * 1-5'
+  workflow_dispatch:   # cho phép chạy tay bất cứ lúc nào
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch dữ liệu từ Entrade
+        run: python3 scripts/fetch_vn.py
+
+      - name: Commit & push nếu có thay đổi
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || (
+            git commit -m "chore: cập nhật data VN stocks $(date -u +'%Y-%m-%d %H:%M UTC')" &&
+            git push
+          )
