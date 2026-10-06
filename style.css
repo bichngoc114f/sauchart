@@ -89,15 +89,7 @@ button { font-family: inherit; }
 
 /* Dòng chú thích O H L C + giá trị chỉ báo */
 .legend {
-  position: absolute;
-  top: 6px;
-  left: 70px;
-  right: 10px;
-  z-index: 5;
-  font-size: 12px;
-  line-height: 1.5;
-  pointer-events: none;
-  text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg);
+  display: none;
 }
 .legend b { color: var(--muted); font-weight: 400; margin: 0 2px 0 8px; }
 .legend .lg-ma { font-weight: 600; }
