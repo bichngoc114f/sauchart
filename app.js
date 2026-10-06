@@ -11,6 +11,49 @@ const DANH_SACH_MA = [
   { ma: 'PAXGUSDT', ten: 'Vàng (PAXG ≈ XAU)' },
 ];
 
+// Cổ phiếu Việt Nam — dữ liệu từ TCBS
+const DANH_SACH_VN = [
+  { ma: 'VNINDEX', ten: 'VN-Index',  loai: 'index' },
+  { ma: 'VN30',    ten: 'VN30',      loai: 'index' },
+  { ma: 'ACB', ten: 'ACB', loai: 'stock' },
+  { ma: 'BCM', ten: 'BCM', loai: 'stock' },
+  { ma: 'BID', ten: 'BID', loai: 'stock' },
+  { ma: 'BVH', ten: 'BVH', loai: 'stock' },
+  { ma: 'CTG', ten: 'CTG', loai: 'stock' },
+  { ma: 'FPT', ten: 'FPT', loai: 'stock' },
+  { ma: 'GAS', ten: 'GAS', loai: 'stock' },
+  { ma: 'GVR', ten: 'GVR', loai: 'stock' },
+  { ma: 'HDB', ten: 'HDB', loai: 'stock' },
+  { ma: 'HPG', ten: 'HPG', loai: 'stock' },
+  { ma: 'MBB', ten: 'MBB', loai: 'stock' },
+  { ma: 'MSN', ten: 'MSN', loai: 'stock' },
+  { ma: 'MWG', ten: 'MWG', loai: 'stock' },
+  { ma: 'NVL', ten: 'NVL', loai: 'stock' },
+  { ma: 'PDR', ten: 'PDR', loai: 'stock' },
+  { ma: 'PLX', ten: 'PLX', loai: 'stock' },
+  { ma: 'PNJ', ten: 'PNJ', loai: 'stock' },
+  { ma: 'POW', ten: 'POW', loai: 'stock' },
+  { ma: 'SAB', ten: 'SAB', loai: 'stock' },
+  { ma: 'SHB', ten: 'SHB', loai: 'stock' },
+  { ma: 'SSI', ten: 'SSI', loai: 'stock' },
+  { ma: 'STB', ten: 'STB', loai: 'stock' },
+  { ma: 'TCB', ten: 'TCB', loai: 'stock' },
+  { ma: 'TPB', ten: 'TPB', loai: 'stock' },
+  { ma: 'VCB', ten: 'VCB', loai: 'stock' },
+  { ma: 'VHM', ten: 'VHM', loai: 'stock' },
+  { ma: 'VIC', ten: 'VIC', loai: 'stock' },
+  { ma: 'VJC', ten: 'VJC', loai: 'stock' },
+  { ma: 'VNM', ten: 'VNM', loai: 'stock' },
+  { ma: 'VPB', ten: 'VPB', loai: 'stock' },
+];
+
+const TCBS_BASE = 'https://apipubaws.tcbs.com.vn/stock-insight/v1';
+// Map khung giờ app → resolution TCBS
+const KHUNG_TCBS = {
+  '15m':'15','30m':'30','1h':'60','2h':'60','4h':'60','8h':'60','12h':'60',
+  '1d':'D','2d':'D','3d':'D','1w':'W','1M':'M',
+};
+
 // [mã Binance, nhãn hiển thị]
 const KHUNG_GIO = [
   ['15m', '15m'], ['30m', '30m'],
@@ -72,7 +115,7 @@ function ghiBoNho(khoa, giaTri) {
 let caiDat = Object.assign({}, MAC_DINH, docBoNho('caidat2', {}));
 let maHienTai = docBoNho('ma', 'BTCUSDT');
 let khungHienTai = docBoNho('khung', '1h');
-if (!DANH_SACH_MA.some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
+if (![...DANH_SACH_MA, ...DANH_SACH_VN].some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
 if (!KHUNG_GIO.some((x) => x[0] === khungHienTai)) khungHienTai = '1h';
 
 let duLieuNen = [];    // nến của biểu đồ
@@ -282,6 +325,21 @@ async function taiTienTo(ma, nenDau) {
   return cacPhan.flat();
 }
 
+// ---------- 5b. TCBS (cổ phiếu VN) ----------
+async function goiTcbs(ma, loai, resolution, from, to) {
+  const url = `${TCBS_BASE}/stock/bars-long-term?ticker=${ma}&type=${loai}&resolution=${resolution}&from=${from}&to=${to}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Không tải được dữ liệu VN');
+  const json = await res.json();
+  return (json.data || [])
+    .map((b) => ({
+      time: Math.floor(new Date(b.tradingDate).getTime() / 1000),
+      open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0,
+    }))
+    .filter((b) => b.open > 0)
+    .sort((a, b) => a.time - b.time);
+}
+
 // ---------- 6. REAL-TIME ----------
 function moKetNoiRealtime(ma, khung) {
   if (wsNen) { wsNen.onclose = null; wsNen.close(); }
@@ -404,17 +462,31 @@ async function napBieuDo() {
   document.title = `${maHienTai} · Sâu Chart`;
   datTrangThai('Đang tải dữ liệu...');
   if (wsNen) { wsNen.onclose = null; wsNen.close(); wsNen = null; }
+
+  const infoVN = DANH_SACH_VN.find((x) => x.ma === maHienTai);
   try {
-    const nen = await goiBinance(`symbol=${maHienTai}&interval=${khungHienTai}&limit=1000`);
-    const tienTo = await taiTienTo(maHienTai, nen[0]);
-    if (toi !== phien) return; // người dùng đã bấm sang mã/khung khác
+    let nen, tienTo = [];
+    if (infoVN) {
+      // --- Cổ phiếu VN: dùng TCBS ---
+      const now = Math.floor(Date.now() / 1000);
+      const from = now - 3 * 365 * 24 * 3600; // 3 năm lịch sử
+      const res = KHUNG_TCBS[khungHienTai] || 'D';
+      nen = await goiTcbs(maHienTai, infoVN.loai, res, from, now);
+      if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
+    } else {
+      // --- Crypto: dùng Binance ---
+      nen = await goiBinance(`symbol=${maHienTai}&interval=${khungHienTai}&limit=1000`);
+      tienTo = await taiTienTo(maHienTai, nen[0]);
+    }
+    if (toi !== phien) return;
     duLieuNen = nen;
     nenTienTo = tienTo.filter((x) => x.time < nen[0].time);
     veToanBo();
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
-    moKetNoiRealtime(maHienTai, khungHienTai);
+    if (!infoVN) moKetNoiRealtime(maHienTai, khungHienTai);
+    else datTrangThai('Cập nhật ~60 giây / lần', 'ok');
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
   }
@@ -441,25 +513,68 @@ function veNutKhungGio() {
 }
 
 // ---------- 9. WATCHLIST ----------
+function taoWlRow(box, ma, ten, nhan) {
+  const row = document.createElement('div');
+  row.className = 'wl-row' + (ma === maHienTai ? ' active' : '');
+  row.id = 'wl-' + ma;
+  row.innerHTML =
+    `<span class="name">${nhan}<span class="sub">${ten}</span></span>` +
+    `<span class="price">—</span><span class="pct">—</span>`;
+  row.onclick = () => {
+    if (maHienTai === ma) return;
+    maHienTai = ma;
+    document.querySelectorAll('.wl-row').forEach((r) => r.classList.remove('active'));
+    row.classList.add('active');
+    napBieuDo();
+  };
+  box.appendChild(row);
+}
+
 function veWatchlist() {
   const box = document.getElementById('watchlist');
   box.innerHTML = '';
-  DANH_SACH_MA.forEach(({ ma, ten }) => {
-    const row = document.createElement('div');
-    row.className = 'wl-row' + (ma === maHienTai ? ' active' : '');
-    row.id = 'wl-' + ma;
-    row.innerHTML =
-      `<span class="name">${ma.replace('USDT', '')}<span class="sub">${ten}</span></span>` +
-      `<span class="price">—</span><span class="pct">—</span>`;
-    row.onclick = () => {
-      if (maHienTai === ma) return;
-      maHienTai = ma;
-      document.querySelectorAll('.wl-row').forEach((r) => r.classList.remove('active'));
-      row.classList.add('active');
-      napBieuDo();
-    };
-    box.appendChild(row);
-  });
+
+  // --- Crypto ---
+  const hCrypto = document.createElement('div');
+  hCrypto.className = 'wl-header';
+  hCrypto.textContent = 'Crypto';
+  box.appendChild(hCrypto);
+  DANH_SACH_MA.forEach(({ ma, ten }) => taoWlRow(box, ma, ten, ma.replace('USDT', '')));
+
+  // --- VN30 ---
+  const hVN = document.createElement('div');
+  hVN.className = 'wl-header';
+  hVN.textContent = 'VN30';
+  box.appendChild(hVN);
+  DANH_SACH_VN.forEach(({ ma, ten }) => taoWlRow(box, ma, ten, ma));
+}
+
+let timerGiaVN = null;
+async function capNhatGiaVN() {
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - 4 * 24 * 3600; // 4 ngày để chắc có 2 phiên
+  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
+    try {
+      const bars = await goiTcbs(ma, loai, 'D', from, now);
+      if (!bars.length) return;
+      const last = bars[bars.length - 1];
+      const prev = bars.length > 1 ? bars[bars.length - 2] : null;
+      const pct = prev ? ((last.close - prev.close) / prev.close) * 100 : 0;
+      const row = document.getElementById('wl-' + ma);
+      if (!row) return;
+      const cls = pct >= 0 ? 'up' : 'down';
+      row.querySelector('.price').textContent = dinhDangGia(last.close);
+      row.querySelector('.price').className = 'price ' + cls;
+      row.querySelector('.pct').textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      row.querySelector('.pct').className = 'pct ' + cls;
+    } catch (_) {}
+  }));
+}
+
+function batDauPollingVN() {
+  capNhatGiaVN();
+  if (timerGiaVN) clearInterval(timerGiaVN);
+  timerGiaVN = setInterval(capNhatGiaVN, 60000);
 }
 
 let wsWatch = null;
@@ -525,6 +640,7 @@ document.addEventListener('visibilitychange', () => {
     napBieuDo();
     if (wsWatch) { wsWatch.onclose = null; wsWatch.close(); }
     moKetNoiWatchlist();
+    batDauPollingVN();
   }
 });
 
@@ -534,4 +650,5 @@ veWatchlist();
 veBangCaiDat();
 taoSeries();
 moKetNoiWatchlist();
+batDauPollingVN();
 napBieuDo();

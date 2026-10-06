@@ -112,6 +112,7 @@ button { font-family: inherit; }
 .watchlist-header { color: var(--muted); border-bottom: 1px solid var(--border); font-size: 12px; }
 .watchlist-header span:not(:first-child),
 .wl-row span:not(:first-child) { text-align: right; }
+.wl-header { padding: 6px 12px 4px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
 .wl-row { cursor: pointer; border-bottom: 1px solid var(--panel); }
 .wl-row:hover { background: var(--panel); }
 .wl-row.active { background: var(--border); }
