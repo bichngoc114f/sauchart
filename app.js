@@ -47,14 +47,13 @@ const CHI_BAO = [
   { id: 'sma20', nhom: 'Trên giá', ten: 'SMA 20', mau: MAU.sma20 },
   { id: 'sma55', nhom: 'Trên giá', ten: 'SMA 55', mau: MAU.sma55 },
   { id: 'ema200', nhom: 'Trên giá', ten: 'EMA 200', mau: MAU.ema200 },
-  { id: 'bb', nhom: 'Trên giá', ten: 'Bollinger Bands (20, 2)', mau: MAU.bb },
   { id: 'bbGia20', nhom: 'Trên giá', ten: 'BB Giá (20, 2.0)', mau: MAU.bb20 },
   { id: 'bbGia55', nhom: 'Trên giá', ten: 'BB Giá (55, 2.1)', mau: MAU.bb55 },
   { id: 'rsi', nhom: 'Khung dưới', ten: 'RSI của Sâu (RSI14 + EMA9, WMA45, BB20, BB55)', mau: MAU.rsi },
 ];
 // Mặc định giống màn hình TradingView của Sâu: VWAP + Volume + RSI
 const MAC_DINH = {
-  sma20: false, sma55: false, ema200: false, bb: false, bbGia20: true, bbGia55: true, volume: true,
+  sma20: false, sma55: false, ema200: false, bbGia20: true, bbGia55: true, volume: true,
   vwapY: true, vwapQ: true, vwapM: true, vwapW: true, rsi: true,
 };
 
@@ -142,11 +141,6 @@ function taoSeries() {
   }
 
   // --- Đường trên giá
-  if (caiDat.bb) {
-    themDuong(0, 'rgba(41,98,255,0.7)', (i) => diem(t(i), ketQua.bb.tren[i]));
-    themDuong(0, 'rgba(41,98,255,0.7)', (i) => diem(t(i), ketQua.bb.duoi[i]));
-    themDuong(0, 'rgba(41,98,255,0.5)', (i) => diem(t(i), ketQua.bb.giua[i]), { lineStyle: LC.LineStyle.Dashed });
-  }
   if (caiDat.bbGia20) {
     themDuong(0, MAU.bb20Dai, (i) => diem(t(i), ketQua.bbGia20.tren[i]));
     themDuong(0, MAU.bb20Dai, (i) => diem(t(i), ketQua.bbGia20.duoi[i]));
@@ -217,7 +211,6 @@ function tinhChiBao() {
     sma20: CB.sma(dong, 20),
     sma55: CB.sma(dong, 55),
     ema200: CB.ema(dong, 200),
-    bb: CB.bollinger(dong, 20, 2),
     bbGia20: CB.bollinger(dong, 20, 2.0),
     bbGia55: CB.bollinger(dong, 55, 2.1),
     rsi,
