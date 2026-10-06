@@ -2,8 +2,8 @@ name: Cập nhật dữ liệu VN stocks
 
 on:
   schedule:
-    # Mỗi 30 phút, Thứ 2–6, 2h–9h UTC (= 9h–16h Việt Nam)
-    - cron: '0,30 2-9 * * 1-5'
+    # Một lần/ngày sau khi thị trường VN đóng cửa: 8h30 UTC = 15h30 VN, Thứ 2–6
+    - cron: '30 8 * * 1-5'
   workflow_dispatch:   # cho phép chạy tay bất cứ lúc nào
 
 permissions:
