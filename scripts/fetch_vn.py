@@ -1,4 +1,4 @@
-"""Fetch OHLCV daily — sources: TCBS / Yahoo Finance / Stooq / Entrade"""
+"""Fetch OHLCV daily — sources: TCBS / Yahoo Finance / VNDirect / Stooq / Entrade"""
 import urllib.request, json, time, os, io, csv
 from datetime import datetime, timezone
 
@@ -18,14 +18,16 @@ NOW  = int(time.time())
 FROM = NOW - 4 * 365 * 24 * 3600
 os.makedirs('data', exist_ok=True)
 
+BROWSER_HDR = {
+    'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                   'AppleWebKit/537.36 (KHTML, like Gecko) '
+                   'Chrome/125.0.0.0 Safari/537.36'),
+    'Accept': 'application/json, */*',
+    'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
+}
+
 def fetch_json(url, extra=None):
-    h = {
-        'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                       'AppleWebKit/537.36 (KHTML, like Gecko) '
-                       'Chrome/125.0.0.0 Safari/537.36'),
-        'Accept': 'application/json, */*',
-        'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
-    }
+    h = dict(BROWSER_HDR)
     if extra:
         h.update(extra)
     req = urllib.request.Request(url, headers=h)
@@ -107,6 +109,37 @@ def try_yahoo(symbol, loai):
         v.append(vols[i]   if vols   and vols[i]   is not None else 0)
     return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
 
+def try_finfo(symbol, loai):
+    # VNDirect finfo API — hỗ trợ cả cổ phiếu lẫn index (VNINDEX, VN30)
+    url = (f"https://finfo-api.vndirect.com.vn/v4/stock_prices/"
+           f"?symbol={symbol}&sort=date&size=1500&page=0")
+    d = fetch_json(url, {'Origin': 'https://www.vndirect.com.vn',
+                         'Referer': 'https://www.vndirect.com.vn/'})
+    items = d.get('data') or []
+    if not items:
+        return None
+    t, o, h, l, c, v = [], [], [], [], [], []
+    for item in items:
+        date_str = item.get('date', '')
+        if len(date_str) < 10:
+            continue
+        try:
+            ts = _date_ts(date_str)
+            close = item.get('close') or item.get('adClose')
+            if not close:
+                continue
+            t.append(ts)
+            o.append(item.get('open') or close)
+            h.append(item.get('high') or close)
+            l.append(item.get('low') or close)
+            c.append(float(close))
+            v.append(item.get('volume') or 0)
+        except Exception:
+            continue
+    # finfo trả về mới nhất trước, cần đảo ngược
+    t.reverse(); o.reverse(); h.reverse(); l.reverse(); c.reverse(); v.reverse()
+    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
+
 def try_stooq(symbol, loai):
     # Stooq có dữ liệu VN index/stock dưới dạng CSV
     stooq_sym = f"{symbol.lower()}.vn"
@@ -151,7 +184,7 @@ def try_entrade(symbol, loai):
                 'l': d['l'], 'c': d['c'], 'v': d.get('v', [])}
     return None
 
-SOURCES = [('TCBS', try_tcbs), ('Yahoo', try_yahoo), ('Stooq', try_stooq), ('Entrade', try_entrade)]
+SOURCES = [('TCBS', try_tcbs), ('Yahoo', try_yahoo), ('Finfo', try_finfo), ('Stooq', try_stooq), ('Entrade', try_entrade)]
 
 ok_count = 0
 for symbol, loai in SYMBOLS:
