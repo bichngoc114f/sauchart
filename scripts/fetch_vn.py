@@ -171,40 +171,100 @@ def try_yahoo_crumb(symbol, loai):
             print(f"  Yahoo crumb {yf}: {e}")
     return None
 
-def try_wigroup(symbol, loai):
-    """WiGroup dchart API — TradingView UDF format, CDN có thể truy cập"""
+def try_cafef(symbol, loai):
+    """CafeF LiveData API — portal lớn VN, có thể truy cập qua CDN"""
     if loai != 'index':
         return None
-    url = (f"https://dchart-api.wigroup.vn/dchart/history"
-           f"?symbol={symbol}&resolution=D&from={FROM}&to={NOW}")
-    d = fetch_json(url, {'Referer': 'https://wichart.vn/',
-                         'Origin': 'https://wichart.vn'}, timeout=15)
-    if d.get('s') != 'ok':
+    import datetime as dt
+    from urllib.parse import quote
+    end   = dt.date.today().strftime('%d/%m/%Y')
+    start = (dt.date.today() - dt.timedelta(days=4*365)).strftime('%d/%m/%Y')
+    url = (f"https://s.cafef.vn/LiveData/PriceHistoryEx.ashx"
+           f"?Symbol={symbol}&StartDate={quote(start)}&EndDate={quote(end)}"
+           f"&PageIndex=1&PageSize=1500")
+    d = fetch_json(url, {'Referer': 'https://cafef.vn/',
+                         'Origin': 'https://cafef.vn'}, timeout=15)
+    items = ((d.get('Content') or {}).get('Data') or
+             d.get('Data') or d.get('data') or [])
+    if len(items) < 10:
         return None
-    ts = d.get('t') or []
-    closes = d.get('c') or []
-    if len(ts) < 10:
+    t, o, h, l, c, v = [], [], [], [], [], []
+    for item in reversed(items):
+        date_str = str(item.get('Ngay') or item.get('date', ''))[:10]
+        # CafeF format: "2026-10-06T00:00:00"
+        if 'T' in date_str:
+            date_str = date_str[:10]
+        if len(date_str) < 10:
+            continue
+        try:
+            ts    = _date_ts(date_str)
+            close = float(item.get('GiaDongCua') or item.get('close') or 0)
+            if not close:
+                continue
+            t.append(ts)
+            o.append(float(item.get('GiaMoCua')    or item.get('open')  or close))
+            h.append(float(item.get('GiaCaoNhat')  or item.get('high')  or close))
+            l.append(float(item.get('GiaThapNhat') or item.get('low')   or close))
+            c.append(close)
+            v.append(float(item.get('KhoiLuongKhopLenh') or
+                           item.get('volume') or 0))
+        except Exception:
+            continue
+    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
+
+def try_dnse(symbol, loai):
+    """DNSE Securities data API"""
+    if loai != 'index':
         return None
-    return {'t': ts, 'o': d.get('o', closes), 'h': d.get('h', closes),
-            'l': d.get('l', closes), 'c': closes, 'v': d.get('v', [0]*len(ts))}
+    # DNSE dùng ký hiệu "VNI" cho VNINDEX, "VN30" cho VN30
+    dnse_sym = 'VNI' if symbol == 'VNINDEX' else symbol
+    url = (f"https://services.entrade.com.vn/chart-api/v2/charts/index"
+           f"?symbol={dnse_sym}&resolution=D&from={FROM}&to={NOW}")
+    d = fetch_json(url, {'Referer': 'https://dnse.com.vn/',
+                         'Origin': 'https://dnse.com.vn'}, timeout=15)
+    if not d.get('t') or len(d['t']) < 10:
+        return None
+    return {'t': d['t'], 'o': d['o'], 'h': d['h'],
+            'l': d['l'], 'c': d['c'], 'v': d.get('v', [])}
 
 def try_ssi_iboard(symbol, loai):
-    """SSI iboard data API — TradingView UDF"""
+    """SSI iboard historical price API v2"""
     if loai != 'index':
         return None
-    url = (f"https://iboard-query.ssi.com.vn/dchart/api/history"
-           f"?symbol={symbol}&resolution=D&from={FROM}&to={NOW}")
+    url = (f"https://iboard-query.ssi.com.vn/v2/stock/historical-price"
+           f"?symbol={symbol}&resolution=1D&limit=1500&page=1")
     d = fetch_json(url, {'Referer': 'https://iboard.ssi.com.vn/',
                          'Origin': 'https://iboard.ssi.com.vn'}, timeout=15)
-    ts = d.get('t') or []
-    closes = d.get('c') or []
-    if len(ts) < 10:
+    # SSI trả về: {"status": "Success", "data": {"items": [...]}}
+    items = ((d.get('data') or {}).get('items') or
+             d.get('items') or [])
+    if len(items) < 10:
         return None
-    return {'t': ts, 'o': d.get('o', closes), 'h': d.get('h', closes),
-            'l': d.get('l', closes), 'c': closes, 'v': d.get('v', [0]*len(ts))}
+    t, o, h, l, c, v = [], [], [], [], [], []
+    for item in reversed(items):
+        date_str = str(item.get('time') or item.get('tradingDate', ''))[:10]
+        if len(date_str) < 10:
+            continue
+        try:
+            ts    = _date_ts(date_str)
+            close = float(item.get('price') or item.get('closePrice') or
+                          item.get('close') or 0)
+            if not close:
+                continue
+            t.append(ts)
+            o.append(float(item.get('openPrice')   or item.get('open')  or close))
+            h.append(float(item.get('highestPrice') or item.get('high')  or close))
+            l.append(float(item.get('lowestPrice')  or item.get('low')   or close))
+            c.append(close)
+            v.append(float(item.get('totalVolume')  or item.get('volume') or 0))
+        except Exception:
+            continue
+    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
 
 def try_fireant(symbol, loai):
     """FireAnt REST API — cả cổ phiếu lẫn index"""
+    if loai != 'index':
+        return None
     import datetime as dt
     end   = dt.date.today().strftime('%Y-%m-%d')
     start = (dt.date.today() - dt.timedelta(days=4*365)).strftime('%Y-%m-%d')
@@ -216,7 +276,7 @@ def try_fireant(symbol, loai):
     if len(items) < 10:
         return None
     t, o, h, l, c, v = [], [], [], [], [], []
-    for item in reversed(items):   # FireAnt: mới nhất trước → đảo
+    for item in reversed(items):
         date_str = str(item.get('date', ''))[:10]
         if len(date_str) < 10:
             continue
@@ -365,10 +425,11 @@ def try_entrade(symbol, loai):
 SOURCES = [
     ('TCBS',       try_tcbs),
     ('Yahoo',      try_yahoo),
-    ('YahooCrumb', try_yahoo_crumb),   # v7 CSV + cookie+crumb → fix 401
-    ('WiGroup',    try_wigroup),        # WiGroup dchart API
-    ('SSI',        try_ssi_iboard),     # SSI iboard
-    ('FireAnt',    try_fireant),        # FireAnt
+    ('CafeF',      try_cafef),          # CafeF portal VN
+    ('DNSE',       try_dnse),           # DNSE/Entrade với ký hiệu VNI
+    ('SSI',        try_ssi_iboard),     # SSI iboard v2
+    ('FireAnt',    try_fireant),        # FireAnt (index only)
+    ('YahooCrumb', try_yahoo_crumb),    # Yahoo v7 CSV + cookie+crumb
     ('YahooCSV',   try_yahoo_csv),
     ('Finfo',      try_finfo),
     ('Stooq',      try_stooq),
