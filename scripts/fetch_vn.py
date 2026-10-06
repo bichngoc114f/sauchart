@@ -474,10 +474,52 @@ def try_eodhd(symbol, loai):
             return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v}
     return None
 
+def try_synthetic_vn30(symbol, loai):
+    """VN30 tổng hợp — tính từ 30 cổ phiếu thành phần đã có trong data/.
+    Dùng khi mọi nguồn API đều thất bại. Kết quả là equal-weight return index."""
+    if symbol != 'VN30' or loai != 'index':
+        return None
+    vn30_stocks = [s for s, t in SYMBOLS if t == 'stock']
+    stock_data = {}
+    for s in vn30_stocks:
+        path = f'data/{s}.json'
+        try:
+            with open(path) as f:
+                d = json.load(f)
+            if isinstance(d.get('t'), list) and len(d['t']) >= 50:
+                stock_data[s] = d
+        except Exception:
+            continue
+    if len(stock_data) < 10:
+        print(f"  SynVN30: chỉ có {len(stock_data)} stock files, cần ≥10")
+        return None
+    all_ts = sorted(set(ts for d in stock_data.values() for ts in d['t']))
+    lookups = {s: dict(zip(d['t'], d['c'])) for s, d in stock_data.items()}
+    t_out, c_out = [], []
+    idx = 1200.0
+    prev = {}
+    for ts in all_ts:
+        closes = {s: lookups[s][ts] for s in stock_data if ts in lookups[s]}
+        if len(closes) < 10:
+            continue
+        if prev:
+            rets = [(closes[s] / prev[s] - 1) for s in closes if s in prev and prev[s] > 0]
+            if rets:
+                idx *= (1 + sum(rets) / len(rets))
+        prev = closes
+        v = round(idx, 2)
+        t_out.append(ts)
+        c_out.append(v)
+    if len(t_out) < 10:
+        return None
+    print(f"  SynVN30: tổng hợp từ {len(stock_data)} cổ phiếu → {len(t_out)} bars")
+    return {'t': t_out, 'o': c_out, 'h': c_out, 'l': c_out, 'c': c_out, 'v': [0]*len(t_out)}
+
+
 SOURCES = [
     ('TCBS',       try_tcbs),
     ('Yahoo',      try_yahoo),
-    ('EODHD',      try_eodhd),          # EODHD — giải pháp chính cho VNINDEX/VN30
+    ('EODHD',      try_eodhd),
     ('CafeF',      try_cafef),
     ('DNSE',       try_dnse),
     ('SSI',        try_ssi_iboard),
@@ -487,6 +529,7 @@ SOURCES = [
     ('Finfo',      try_finfo),
     ('Stooq',      try_stooq),
     ('Entrade',    try_entrade),
+    ('SynVN30',    try_synthetic_vn30),  # phương án cuối cho VN30
 ]
 
 ok_count = 0
