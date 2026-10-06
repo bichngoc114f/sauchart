@@ -47,12 +47,19 @@ const DANH_SACH_VN = [
   { ma: 'VPB', ten: 'VPB', loai: 'stock' },
 ];
 
-// Yahoo Finance — có dữ liệu VN stocks (.VN), hoạt động từ browser
-const YAHOO_CHART = 'https://query1.finance.yahoo.com/v8/finance/chart';
-const YAHOO_KHUNG = {
+// Dữ liệu VN: Yahoo Finance (thử trước) → allorigins+Entrade (fallback)
+const YAHOO_CHART  = 'https://query1.finance.yahoo.com/v8/finance/chart';
+const YAHOO_KHUNG  = {
   '15m':'15m','30m':'30m',
   '1h':'60m','2h':'60m','4h':'60m','8h':'60m','12h':'60m',
   '1d':'1d','2d':'1d','3d':'1d','1w':'1wk','1M':'1mo',
+};
+const ENTRADE_HOST = 'https://services.entrade.com.vn/chart-api/v2/charts';
+const ALLORIGINS   = 'https://api.allorigins.win/raw?url=';
+const KHUNG_VN     = {
+  '15m':'15','30m':'30',
+  '1h':'60','2h':'60','4h':'60','8h':'60','12h':'60',
+  '1d':'D','2d':'D','3d':'D','1w':'W','1M':'M',
 };
 
 // [mã Binance, nhãn hiển thị]
@@ -326,29 +333,49 @@ async function taiTienTo(ma, nenDau) {
   return cacPhan.flat();
 }
 
-// ---------- 5b. Yahoo Finance (cổ phiếu + chỉ số VN) ----------
+// ---------- 5b. Dữ liệu VN: Yahoo Finance → fallback allorigins+Entrade ----------
+function _fetchTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(tid));
+}
 function _maYahoo(ma) {
   if (ma === 'VNINDEX') return '%5EVNINDEX';
   if (ma === 'VN30')    return '%5EVN30';
   return ma + '.VN';
 }
-async function goiYahooVN(ma, khung, from, to) {
-  const sym      = _maYahoo(ma);
+async function _goiYahoo(ma, khung, from, to) {
   const interval = YAHOO_KHUNG[khung] || '1d';
-  const url = `${YAHOO_CHART}/${sym}?period1=${from}&period2=${to}&interval=${interval}&events=history&includePrePost=false`;
-  let res;
-  try { res = await fetch(url); } catch (e) { throw new Error(`CORS/mạng: ${e.message}`); }
-  if (!res.ok) throw new Error(`Lỗi ${res.status} (${ma})`);
-  const json   = await res.json();
-  const result = json.chart?.result?.[0];
-  if (!result?.timestamp?.length) throw new Error('Không có dữ liệu cho mã này');
-  const ts = result.timestamp;
-  const q  = result.indicators.quote[0];
-  return ts.map((t, i) => ({
+  const url = `${YAHOO_CHART}/${_maYahoo(ma)}?period1=${from}&period2=${to}&interval=${interval}&events=history&includePrePost=false`;
+  const res = await _fetchTimeout(url, 7000);
+  if (!res.ok) throw new Error(`Yahoo ${res.status}`);
+  const json = await res.json();
+  const r = json.chart?.result?.[0];
+  if (!r?.timestamp?.length) throw new Error('Không có dữ liệu');
+  const q = r.indicators.quote[0];
+  return r.timestamp.map((t, i) => ({
     time: t,
     open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
     volume: q.volume[i] || 0,
   })).filter((b) => b.open != null && b.open > 0);
+}
+async function _goiEntrade(ma, loai, khung, from, to) {
+  const type   = loai === 'index' ? 'index' : 'stock';
+  const res_vn = KHUNG_VN[khung] || 'D';
+  const target = `${ENTRADE_HOST}/${type}?symbol=${ma}&resolution=${res_vn}&from=${from}&to=${to}`;
+  const res = await _fetchTimeout(ALLORIGINS + encodeURIComponent(target), 12000);
+  if (!res.ok) throw new Error(`Entrade ${res.status}`);
+  const json = await res.json();
+  if (!json.t?.length) throw new Error('Không có dữ liệu');
+  return json.t.map((ts, i) => ({
+    time: ts,
+    open: json.o[i], high: json.h[i], low: json.l[i], close: json.c[i],
+    volume: json.v ? json.v[i] : 0,
+  })).filter((b) => b.open > 0);
+}
+async function goiYahooVN(ma, loai, khung, from, to) {
+  try { return await _goiYahoo(ma, khung, from, to); } catch (_) {}
+  return _goiEntrade(ma, loai, khung, from, to);
 }
 
 // ---------- 6. REAL-TIME ----------
@@ -481,7 +508,7 @@ async function napBieuDo() {
       // --- Cổ phiếu VN: Yahoo Finance ---
       const now = Math.floor(Date.now() / 1000);
       const from = now - 3 * 365 * 24 * 3600;
-      nen = await goiYahooVN(maHienTai, khungHienTai, from, now);
+      nen = await goiYahooVN(maHienTai, infoVN.loai, khungHienTai, from, now);
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
       // --- Crypto: dùng Binance ---
@@ -563,9 +590,9 @@ let timerGiaVN = null;
 async function capNhatGiaVN() {
   const now = Math.floor(Date.now() / 1000);
   const from = now - 4 * 24 * 3600; // 4 ngày để chắc có 2 phiên
-  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma }) => {
+  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
     try {
-      const bars = await goiYahooVN(ma, '1d', from, now);
+      const bars = await goiYahooVN(ma, loai, '1d', from, now);
       if (!bars.length) return;
       const last = bars[bars.length - 1];
       const prev = bars.length > 1 ? bars[bars.length - 2] : null;
