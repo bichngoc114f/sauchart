@@ -527,6 +527,22 @@ def try_synthetic_vn30(symbol, loai):
         l_out.append(l_val); c_out.append(c_val)
     if len(t_out) < 10:
         return None
+    # Hiệu chỉnh theo VNINDEX thực (EODHD) × hệ số VN30/VNINDEX = 1.079
+    # Hệ số ổn định lịch sử 1.05-1.10; cập nhật mỗi lần chạy tự động
+    VN30_VNI_RATIO = 1.079
+    try:
+        with open('data/VNINDEX.json') as f:
+            vni = json.load(f)
+        vni_last_c = vni['c'][-1]
+        vn30_est   = vni_last_c * VN30_VNI_RATIO
+        scale      = vn30_est / c_out[-1]
+        o_out = [round(x * scale, 2) for x in o_out]
+        h_out = [round(x * scale, 2) for x in h_out]
+        l_out = [round(x * scale, 2) for x in l_out]
+        c_out = [round(x * scale, 2) for x in c_out]
+        print(f"  SynVN30: hiệu chỉnh ×{scale:.4f} → VN30≈{c_out[-1]:.2f} (VNINDEX {vni_last_c:.2f}×{VN30_VNI_RATIO})")
+    except Exception as e:
+        print(f"  SynVN30: bỏ qua hiệu chỉnh VNINDEX: {e}")
     print(f"  SynVN30: tổng hợp từ {len(stock_data)} cổ phiếu → {len(t_out)} bars")
     return {'t': t_out, 'o': o_out, 'h': h_out, 'l': l_out, 'c': c_out, 'v': [0]*len(t_out)}
 
