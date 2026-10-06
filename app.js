@@ -47,9 +47,9 @@ const DANH_SACH_VN = [
   { ma: 'VPB', ten: 'VPB', loai: 'stock' },
 ];
 
-const TCBS_BASE = 'https://apipubaws.tcbs.com.vn/stock-insight/v1';
-// Map khung giờ app → resolution TCBS
-const KHUNG_TCBS = {
+const ENTRADE_BASE = 'https://services.entrade.com.vn/chart-api/v2/charts/stock';
+// Map khung giờ app → resolution Entrade
+const KHUNG_VN = {
   '15m':'15','30m':'30','1h':'60','2h':'60','4h':'60','8h':'60','12h':'60',
   '1d':'D','2d':'D','3d':'D','1w':'W','1M':'M',
 };
@@ -325,19 +325,18 @@ async function taiTienTo(ma, nenDau) {
   return cacPhan.flat();
 }
 
-// ---------- 5b. TCBS (cổ phiếu VN) ----------
-async function goiTcbs(ma, loai, resolution, from, to) {
-  const url = `${TCBS_BASE}/stock/bars-long-term?ticker=${ma}&type=${loai}&resolution=${resolution}&from=${from}&to=${to}`;
+// ---------- 5b. ENTRADE/DNSE (cổ phiếu VN) ----------
+async function goiEntrade(ma, resolution, from, to) {
+  const url = `${ENTRADE_BASE}?symbol=${ma}&resolution=${resolution}&from=${from}&to=${to}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Không tải được dữ liệu VN');
   const json = await res.json();
-  return (json.data || [])
-    .map((b) => ({
-      time: Math.floor(new Date(b.tradingDate).getTime() / 1000),
-      open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0,
-    }))
-    .filter((b) => b.open > 0)
-    .sort((a, b) => a.time - b.time);
+  if (!json.t || !json.t.length) throw new Error('Không có dữ liệu cho mã này');
+  return json.t.map((ts, i) => ({
+    time: ts,
+    open: json.o[i], high: json.h[i], low: json.l[i], close: json.c[i],
+    volume: json.v ? json.v[i] : 0,
+  })).filter((b) => b.open > 0);
 }
 
 // ---------- 6. REAL-TIME ----------
@@ -470,8 +469,8 @@ async function napBieuDo() {
       // --- Cổ phiếu VN: dùng TCBS ---
       const now = Math.floor(Date.now() / 1000);
       const from = now - 3 * 365 * 24 * 3600; // 3 năm lịch sử
-      const res = KHUNG_TCBS[khungHienTai] || 'D';
-      nen = await goiTcbs(maHienTai, infoVN.loai, res, from, now);
+      const res = KHUNG_VN[khungHienTai] || 'D';
+      nen = await goiEntrade(maHienTai, res, from, now);
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
       // --- Crypto: dùng Binance ---
@@ -553,9 +552,9 @@ let timerGiaVN = null;
 async function capNhatGiaVN() {
   const now = Math.floor(Date.now() / 1000);
   const from = now - 4 * 24 * 3600; // 4 ngày để chắc có 2 phiên
-  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
+  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma }) => {
     try {
-      const bars = await goiTcbs(ma, loai, 'D', from, now);
+      const bars = await goiEntrade(ma, 'D', from, now);
       if (!bars.length) return;
       const last = bars[bars.length - 1];
       const prev = bars.length > 1 ? bars[bars.length - 2] : null;
