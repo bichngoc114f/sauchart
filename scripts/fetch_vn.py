@@ -422,14 +422,52 @@ def try_entrade(symbol, loai):
                 'l': d['l'], 'c': d['c'], 'v': d.get('v', [])}
     return None
 
+def try_eodhd(symbol, loai):
+    """EODHD (eodhistoricaldata.com) — free API key, toàn cầu, có VN index"""
+    if loai != 'index':
+        return None
+    api_key = os.environ.get('EODHD_KEY', '')
+    if not api_key:
+        print(f"  EODHD: EODHD_KEY chưa được set")
+        return None
+    eod_sym   = f'{symbol}.VNM'
+    from_date = datetime.utcfromtimestamp(FROM).strftime('%Y-%m-%d')
+    to_date   = datetime.utcnow().strftime('%Y-%m-%d')
+    url = (f"https://eodhd.com/api/eod/{eod_sym}"
+           f"?from={from_date}&to={to_date}&period=d"
+           f"&api_token={api_key}&fmt=json")
+    d = fetch_json(url, timeout=20)
+    if not isinstance(d, list) or len(d) < 10:
+        return None
+    t, o, h, l, c, v = [], [], [], [], [], []
+    for item in d:
+        date_str = str(item.get('date', ''))[:10]
+        if len(date_str) < 10:
+            continue
+        try:
+            ts    = _date_ts(date_str)
+            close = float(item.get('close') or item.get('adjusted_close') or 0)
+            if not close:
+                continue
+            t.append(ts)
+            o.append(float(item.get('open')   or close))
+            h.append(float(item.get('high')   or close))
+            l.append(float(item.get('low')    or close))
+            c.append(close)
+            v.append(float(item.get('volume') or 0))
+        except Exception:
+            continue
+    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
+
 SOURCES = [
     ('TCBS',       try_tcbs),
     ('Yahoo',      try_yahoo),
-    ('CafeF',      try_cafef),          # CafeF portal VN
-    ('DNSE',       try_dnse),           # DNSE/Entrade với ký hiệu VNI
-    ('SSI',        try_ssi_iboard),     # SSI iboard v2
-    ('FireAnt',    try_fireant),        # FireAnt (index only)
-    ('YahooCrumb', try_yahoo_crumb),    # Yahoo v7 CSV + cookie+crumb
+    ('EODHD',      try_eodhd),          # EODHD — giải pháp chính cho VNINDEX/VN30
+    ('CafeF',      try_cafef),
+    ('DNSE',       try_dnse),
+    ('SSI',        try_ssi_iboard),
+    ('FireAnt',    try_fireant),
+    ('YahooCrumb', try_yahoo_crumb),
     ('YahooCSV',   try_yahoo_csv),
     ('Finfo',      try_finfo),
     ('Stooq',      try_stooq),
