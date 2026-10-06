@@ -423,41 +423,56 @@ def try_entrade(symbol, loai):
     return None
 
 def try_eodhd(symbol, loai):
-    """EODHD (eodhistoricaldata.com) — free API key, toàn cầu, có VN index"""
+    """EODHD (eodhistoricaldata.com) — free API key, toàn cầu, có VN index.
+    Indices dùng exchange INDX; VN stocks dùng exchange VN."""
     if loai != 'index':
         return None
     api_key = os.environ.get('EODHD_KEY', '')
     if not api_key:
         print(f"  EODHD: EODHD_KEY chưa được set")
         return None
-    eod_sym   = f'{symbol}.VNM'
-    from_date = datetime.utcfromtimestamp(FROM).strftime('%Y-%m-%d')
-    to_date   = datetime.utcnow().strftime('%Y-%m-%d')
-    url = (f"https://eodhd.com/api/eod/{eod_sym}"
-           f"?from={from_date}&to={to_date}&period=d"
-           f"&api_token={api_key}&fmt=json")
-    d = fetch_json(url, timeout=20)
-    if not isinstance(d, list) or len(d) < 10:
-        return None
-    t, o, h, l, c, v = [], [], [], [], [], []
-    for item in d:
-        date_str = str(item.get('date', ''))[:10]
-        if len(date_str) < 10:
-            continue
+    from_date = datetime.fromtimestamp(FROM, tz=timezone.utc).strftime('%Y-%m-%d')
+    to_date   = datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')
+    # thử nhiều định dạng symbol: INDX cho indices, VN cho sàn HCM
+    candidates = [
+        f'{symbol}.INDX',
+        f'{symbol}.VN',
+        f'{symbol}.HO',    # HOSE (Ho Chi Minh Stock Exchange)
+    ]
+    for eod_sym in candidates:
+        url = (f"https://eodhd.com/api/eod/{eod_sym}"
+               f"?from={from_date}&to={to_date}&period=d"
+               f"&api_token={api_key}&fmt=json")
         try:
-            ts    = _date_ts(date_str)
-            close = float(item.get('close') or item.get('adjusted_close') or 0)
-            if not close:
-                continue
-            t.append(ts)
-            o.append(float(item.get('open')   or close))
-            h.append(float(item.get('high')   or close))
-            l.append(float(item.get('low')    or close))
-            c.append(close)
-            v.append(float(item.get('volume') or 0))
-        except Exception:
+            d = fetch_json(url, timeout=20)
+        except Exception as e:
+            print(f"  EODHD {eod_sym}: {e}")
             continue
-    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
+        if not isinstance(d, list) or len(d) < 10:
+            print(f"  EODHD {eod_sym}: ít dữ liệu ({len(d) if isinstance(d, list) else type(d).__name__})")
+            continue
+        t, o, h, l, c, v = [], [], [], [], [], []
+        for item in d:
+            date_str = str(item.get('date', ''))[:10]
+            if len(date_str) < 10:
+                continue
+            try:
+                ts    = _date_ts(date_str)
+                close = float(item.get('close') or item.get('adjusted_close') or 0)
+                if not close:
+                    continue
+                t.append(ts)
+                o.append(float(item.get('open')   or close))
+                h.append(float(item.get('high')   or close))
+                l.append(float(item.get('low')    or close))
+                c.append(close)
+                v.append(float(item.get('volume') or 0))
+            except Exception:
+                continue
+        if len(t) >= 10:
+            print(f"  EODHD {eod_sym}: OK {len(t)} bars")
+            return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v}
+    return None
 
 SOURCES = [
     ('TCBS',       try_tcbs),
