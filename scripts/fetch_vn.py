@@ -1,5 +1,5 @@
-"""Fetch OHLCV daily — sources: TCBS / Yahoo Finance / Entrade"""
-import urllib.request, json, time, os
+"""Fetch OHLCV daily — sources: TCBS / Yahoo Finance / Stooq / Entrade"""
+import urllib.request, json, time, os, io, csv
 from datetime import datetime, timezone
 
 SYMBOLS = [
@@ -107,6 +107,38 @@ def try_yahoo(symbol, loai):
         v.append(vols[i]   if vols   and vols[i]   is not None else 0)
     return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
 
+def try_stooq(symbol, loai):
+    # Stooq có dữ liệu VN index/stock dưới dạng CSV
+    stooq_sym = f"{symbol.lower()}.vn"
+    url = f"https://stooq.com/q/d/l/?s={stooq_sym}&i=d"
+    req = urllib.request.Request(url, headers=BROWSER_HDR)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        content = r.read().decode('utf-8')
+    reader = csv.DictReader(io.StringIO(content))
+    rows = list(reader)
+    if not rows or 'Date' not in (rows[0] if rows else {}):
+        return None
+    t, o, h, l, c, v = [], [], [], [], [], []
+    for row in sorted(rows, key=lambda r: r.get('Date', '')):
+        d = row.get('Date', '')
+        if len(d) < 10:
+            continue
+        try:
+            ts = int(datetime(int(d[:4]), int(d[5:7]), int(d[8:10]),
+                              tzinfo=timezone.utc).timestamp())
+            o.append(float(row.get('Open') or 0))
+            h.append(float(row.get('High') or 0))
+            l.append(float(row.get('Low') or 0))
+            close = float(row.get('Close') or 0)
+            if not close:
+                continue
+            t.append(ts)
+            c.append(close)
+            v.append(float(row.get('Volume') or 0))
+        except Exception:
+            continue
+    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
+
 def try_entrade(symbol, loai):
     url = (f"https://services.entrade.com.vn/chart-api/v2/charts/{loai}"
            f"?symbol={symbol}&resolution=D&from={FROM}&to={NOW}")
@@ -119,7 +151,7 @@ def try_entrade(symbol, loai):
                 'l': d['l'], 'c': d['c'], 'v': d.get('v', [])}
     return None
 
-SOURCES = [('TCBS', try_tcbs), ('Yahoo', try_yahoo), ('Entrade', try_entrade)]
+SOURCES = [('TCBS', try_tcbs), ('Yahoo', try_yahoo), ('Stooq', try_stooq), ('Entrade', try_entrade)]
 
 ok_count = 0
 for symbol, loai in SYMBOLS:
