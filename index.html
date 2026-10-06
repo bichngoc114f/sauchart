@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <!-- viewport-fit=cover: dùng cả vùng tai thỏ trên iPhone -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Sâu Chart</title>
+
+  <!-- Để "Thêm vào Màn hình chính" trên iPhone/iPad trông như app thật -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Sâu Chart" />
+  <meta name="theme-color" content="#1d1f28" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
+  <link rel="icon" type="image/png" href="icon-180.png" />
+  <link rel="manifest" href="manifest.json" />
+
+  <link rel="stylesheet" href="style.css" />
+  <!-- Thư viện vẽ biểu đồ mã nguồn mở của chính TradingView -->
+  <script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <!-- Thanh công cụ phía trên -->
+  <header class="toolbar">
+    <div class="brand">🐛 Sâu Chart</div>
+    <div class="symbol-title">
+      <span id="symbolTitle">BTCUSDT</span>
+      <span id="symbolPrice" class="symbol-price"></span>
+    </div>
+    <div class="timeframes" id="timeframes"></div>
+    <button class="icon-btn" id="btnCaiDat">⚙︎ Chỉ báo</button>
+    <div class="status" id="status"><span class="dot">●</span><span class="status-text">Đang kết nối...</span></div>
+  </header>
+
+  <main class="layout">
+    <!-- Khu vực biểu đồ -->
+    <section class="chart-wrap">
+      <div class="legend" id="legend"></div>
+      <div class="legend legend-rsi" id="legendRsi"></div>
+      <div id="chart"></div>
+    </section>
+
+    <!-- Watchlist: bên phải trên máy tính, thành dải ngang trên điện thoại -->
+    <aside class="watchlist">
+      <div class="watchlist-header"><span>Mã</span><span>Giá</span><span>24h</span></div>
+      <div id="watchlist"></div>
+    </aside>
+  </main>
+
+  <!-- Bảng bật/tắt chỉ báo -->
+  <div class="panel" id="panelCaiDat" hidden>
+    <div class="panel-box">
+      <div class="panel-head">
+        <span>Chỉ báo</span>
+        <button class="icon-btn" id="btnDong">✕</button>
+      </div>
+      <div id="dsChiBao"></div>
+    </div>
+  </div>
+
+  <script src="indicators.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
