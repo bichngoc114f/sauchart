@@ -1,5 +1,5 @@
-"""Fetch OHLCV daily — sources: TCBS / Yahoo Finance / VNDirect / Stooq / Entrade"""
-import urllib.request, json, time, os, io, csv
+"""Fetch OHLCV daily — sources: TCBS / Yahoo / WiGroup / SSI / FireAnt / VNDirect / Stooq / Entrade"""
+import urllib.request, json, time, os, io, csv, http.cookiejar
 from datetime import datetime, timezone
 
 SYMBOLS = [
@@ -26,12 +26,12 @@ BROWSER_HDR = {
     'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
 }
 
-def fetch_json(url, extra=None):
+def fetch_json(url, extra=None, timeout=25):
     h = dict(BROWSER_HDR)
     if extra:
         h.update(extra)
     req = urllib.request.Request(url, headers=h)
-    with urllib.request.urlopen(req, timeout=25) as r:
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
 def _date_ts(s):
@@ -46,6 +46,31 @@ def _v(item, *keys):
             return item[k]
     return 0
 
+# ── Yahoo crumb cache ────────────────────────────────────────────────────────
+_yahoo_opener = None
+_yahoo_crumb  = None
+
+def _get_yahoo_crumb():
+    global _yahoo_opener, _yahoo_crumb
+    if _yahoo_crumb:
+        return _yahoo_opener, _yahoo_crumb
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    opener.addheaders = (list(BROWSER_HDR.items()) +
+                         [('Referer', 'https://finance.yahoo.com/')])
+    opener.open('https://finance.yahoo.com/', timeout=15)
+    with opener.open('https://query1.finance.yahoo.com/v1/test/getcrumb',
+                     timeout=15) as r:
+        crumb = r.read().decode('utf-8').strip()
+    if len(crumb) < 3:
+        raise ValueError(f'crumb too short: {crumb!r}')
+    print(f'  Yahoo crumb: {crumb[:8]}...')
+    _yahoo_opener = opener
+    _yahoo_crumb  = crumb
+    return opener, crumb
+
+# ────────────────────────────────────────────────────────────────────────────
+
 def try_tcbs(symbol, loai):
     if loai == 'index':
         url = (f"https://apipubaws.tcbs.com.vn/stock-insight/v1/index/bars-long-term"
@@ -57,8 +82,6 @@ def try_tcbs(symbol, loai):
     items = d.get('data') or []
     if not items:
         return None
-    # Debug: print first item structure once per symbol
-    print(f"  TCBS sample: {json.dumps(items[0])[:120]}")
     t, o, h, l, c, v = [], [], [], [], [], []
     for item in items:
         td = _v(item, 'tradingDate', 'date')
@@ -109,8 +132,111 @@ def try_yahoo(symbol, loai):
         v.append(vols[i]   if vols   and vols[i]   is not None else 0)
     return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
 
+def try_yahoo_crumb(symbol, loai):
+    """Yahoo Finance v7 CSV với cookie+crumb — giải quyết lỗi 401"""
+    if loai != 'index':
+        return None
+    try:
+        opener, crumb = _get_yahoo_crumb()
+    except Exception as e:
+        print(f"  Yahoo crumb setup: {e}")
+        return None
+    for yf in [f'%5E{symbol}', f'{symbol}.VN', symbol]:
+        url = (f"https://query1.finance.yahoo.com/v7/finance/download/{yf}"
+               f"?period1={FROM}&period2={NOW}&interval=1d&events=history&crumb={crumb}")
+        try:
+            with opener.open(url, timeout=20) as r:
+                content = r.read().decode('utf-8')
+            t, o, hi, lo, c, v = [], [], [], [], [], []
+            for row in csv.DictReader(io.StringIO(content)):
+                d = (row.get('Date') or '')[:10]
+                if len(d) < 10:
+                    continue
+                try:
+                    cl = float(row.get('Close') or 0)
+                    if not cl or cl != cl:
+                        continue
+                    ts = int(datetime(int(d[:4]), int(d[5:7]), int(d[8:10]),
+                                      tzinfo=timezone.utc).timestamp())
+                    t.append(ts); o.append(float(row.get('Open') or cl))
+                    hi.append(float(row.get('High') or cl))
+                    lo.append(float(row.get('Low') or cl))
+                    c.append(cl); v.append(float(row.get('Volume') or 0))
+                except Exception:
+                    continue
+            if len(t) >= 10:
+                return {'t': t, 'o': o, 'h': hi, 'l': lo, 'c': c, 'v': v}
+            print(f"  Yahoo crumb {yf}: {len(t)} rows")
+        except Exception as e:
+            print(f"  Yahoo crumb {yf}: {e}")
+    return None
+
+def try_wigroup(symbol, loai):
+    """WiGroup dchart API — TradingView UDF format, CDN có thể truy cập"""
+    if loai != 'index':
+        return None
+    url = (f"https://dchart-api.wigroup.vn/dchart/history"
+           f"?symbol={symbol}&resolution=D&from={FROM}&to={NOW}")
+    d = fetch_json(url, {'Referer': 'https://wichart.vn/',
+                         'Origin': 'https://wichart.vn'}, timeout=15)
+    if d.get('s') != 'ok':
+        return None
+    ts = d.get('t') or []
+    closes = d.get('c') or []
+    if len(ts) < 10:
+        return None
+    return {'t': ts, 'o': d.get('o', closes), 'h': d.get('h', closes),
+            'l': d.get('l', closes), 'c': closes, 'v': d.get('v', [0]*len(ts))}
+
+def try_ssi_iboard(symbol, loai):
+    """SSI iboard data API — TradingView UDF"""
+    if loai != 'index':
+        return None
+    url = (f"https://iboard-query.ssi.com.vn/dchart/api/history"
+           f"?symbol={symbol}&resolution=D&from={FROM}&to={NOW}")
+    d = fetch_json(url, {'Referer': 'https://iboard.ssi.com.vn/',
+                         'Origin': 'https://iboard.ssi.com.vn'}, timeout=15)
+    ts = d.get('t') or []
+    closes = d.get('c') or []
+    if len(ts) < 10:
+        return None
+    return {'t': ts, 'o': d.get('o', closes), 'h': d.get('h', closes),
+            'l': d.get('l', closes), 'c': closes, 'v': d.get('v', [0]*len(ts))}
+
+def try_fireant(symbol, loai):
+    """FireAnt REST API — cả cổ phiếu lẫn index"""
+    import datetime as dt
+    end   = dt.date.today().strftime('%Y-%m-%d')
+    start = (dt.date.today() - dt.timedelta(days=4*365)).strftime('%Y-%m-%d')
+    url = (f"https://restv2.fireant.vn/symbols/{symbol}/historical-quotes"
+           f"?startDate={start}&endDate={end}&offset=0&limit=1500")
+    d = fetch_json(url, {'Referer': 'https://fireant.vn/',
+                         'Origin': 'https://fireant.vn'}, timeout=15)
+    items = d if isinstance(d, list) else []
+    if len(items) < 10:
+        return None
+    t, o, h, l, c, v = [], [], [], [], [], []
+    for item in reversed(items):   # FireAnt: mới nhất trước → đảo
+        date_str = str(item.get('date', ''))[:10]
+        if len(date_str) < 10:
+            continue
+        try:
+            ts    = _date_ts(date_str)
+            close = float(item.get('priceClose') or item.get('close') or 0)
+            if not close:
+                continue
+            t.append(ts)
+            o.append(float(item.get('priceOpen') or item.get('open') or close))
+            h.append(float(item.get('priceHigh') or item.get('high') or close))
+            l.append(float(item.get('priceLow')  or item.get('low')  or close))
+            c.append(close)
+            v.append(float(item.get('totalVolume') or item.get('volume') or 0))
+        except Exception:
+            continue
+    return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
+
 def try_yahoo_csv(symbol, loai):
-    """Yahoo Finance v7 CSV — thử cho index (v8 JSON trả 404 cho ^VNINDEX)"""
+    """Yahoo Finance v7 CSV không crumb — fallback"""
     if loai != 'index':
         return None
     for yf in [f'%5E{symbol}', f'{symbol}.VN', symbol]:
@@ -122,9 +248,8 @@ def try_yahoo_csv(symbol, loai):
             req = urllib.request.Request(url, headers=h)
             with urllib.request.urlopen(req, timeout=20) as r:
                 content = r.read().decode('utf-8')
-            reader = csv.DictReader(io.StringIO(content))
             t, o, hi, lo, c, v = [], [], [], [], [], []
-            for row in reader:
+            for row in csv.DictReader(io.StringIO(content)):
                 d = (row.get('Date') or '')[:10]
                 if len(d) < 10:
                     continue
@@ -134,12 +259,10 @@ def try_yahoo_csv(symbol, loai):
                         continue
                     ts = int(datetime(int(d[:4]), int(d[5:7]), int(d[8:10]),
                                       tzinfo=timezone.utc).timestamp())
-                    t.append(ts)
-                    o.append(float(row.get('Open') or cl))
+                    t.append(ts); o.append(float(row.get('Open') or cl))
                     hi.append(float(row.get('High') or cl))
                     lo.append(float(row.get('Low') or cl))
-                    c.append(cl)
-                    v.append(float(row.get('Volume') or 0))
+                    c.append(cl); v.append(float(row.get('Volume') or 0))
                 except Exception:
                     continue
             if len(t) >= 10:
@@ -150,7 +273,6 @@ def try_yahoo_csv(symbol, loai):
     return None
 
 def try_finfo(symbol, loai):
-    # VNDirect finfo API — hỗ trợ cả cổ phiếu lẫn index (VNINDEX, VN30)
     url = (f"https://finfo-api.vndirect.com.vn/v4/stock_prices/"
            f"?symbol={symbol}&sort=date&size=1500&page=0")
     h = dict(BROWSER_HDR)
@@ -180,12 +302,10 @@ def try_finfo(symbol, loai):
             v.append(item.get('volume') or 0)
         except Exception:
             continue
-    # finfo trả về mới nhất trước, cần đảo ngược
     t.reverse(); o.reverse(); h.reverse(); l.reverse(); c.reverse(); v.reverse()
     return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
 
 def try_stooq(symbol, loai):
-    # Stooq CSV: cổ phiếu → acb.vn; index → thử nhiều ticker khác nhau
     if loai == 'index':
         candidates = [symbol.lower(), f"%5e{symbol.lower()}", f"{symbol.lower()}.vn"]
     else:
@@ -242,8 +362,18 @@ def try_entrade(symbol, loai):
                 'l': d['l'], 'c': d['c'], 'v': d.get('v', [])}
     return None
 
-SOURCES = [('TCBS', try_tcbs), ('Yahoo', try_yahoo), ('YahooCSV', try_yahoo_csv),
-           ('Finfo', try_finfo), ('Stooq', try_stooq), ('Entrade', try_entrade)]
+SOURCES = [
+    ('TCBS',       try_tcbs),
+    ('Yahoo',      try_yahoo),
+    ('YahooCrumb', try_yahoo_crumb),   # v7 CSV + cookie+crumb → fix 401
+    ('WiGroup',    try_wigroup),        # WiGroup dchart API
+    ('SSI',        try_ssi_iboard),     # SSI iboard
+    ('FireAnt',    try_fireant),        # FireAnt
+    ('YahooCSV',   try_yahoo_csv),
+    ('Finfo',      try_finfo),
+    ('Stooq',      try_stooq),
+    ('Entrade',    try_entrade),
+]
 
 ok_count = 0
 for symbol, loai in SYMBOLS:
