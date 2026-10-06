@@ -47,7 +47,8 @@ const DANH_SACH_VN = [
   { ma: 'VPB', ten: 'VPB', loai: 'stock' },
 ];
 
-const ENTRADE_BASE = 'https://services.entrade.com.vn/chart-api/v2/charts/stock';
+const ENTRADE_HOST = 'https://services.entrade.com.vn/chart-api/v2/charts';
+const CORS_PROXY  = 'https://corsproxy.io/?';
 // Map khung giờ app → resolution Entrade
 const KHUNG_VN = {
   '15m':'15','30m':'30','1h':'60','2h':'60','4h':'60','8h':'60','12h':'60',
@@ -326,9 +327,11 @@ async function taiTienTo(ma, nenDau) {
 }
 
 // ---------- 5b. ENTRADE/DNSE (cổ phiếu VN) ----------
-async function goiEntrade(ma, resolution, from, to) {
-  const url = `${ENTRADE_BASE}?symbol=${ma}&resolution=${resolution}&from=${from}&to=${to}`;
-  const res = await fetch(url);
+// loai: 'stock' | 'index'
+async function goiEntrade(ma, loai, resolution, from, to) {
+  const type = loai === 'index' ? 'index' : 'stock';
+  const target = `${ENTRADE_HOST}/${type}?symbol=${ma}&resolution=${resolution}&from=${from}&to=${to}`;
+  const res = await fetch(CORS_PROXY + encodeURIComponent(target));
   if (!res.ok) throw new Error('Không tải được dữ liệu VN');
   const json = await res.json();
   if (!json.t || !json.t.length) throw new Error('Không có dữ liệu cho mã này');
@@ -470,7 +473,7 @@ async function napBieuDo() {
       const now = Math.floor(Date.now() / 1000);
       const from = now - 3 * 365 * 24 * 3600; // 3 năm lịch sử
       const res = KHUNG_VN[khungHienTai] || 'D';
-      nen = await goiEntrade(maHienTai, res, from, now);
+      nen = await goiEntrade(maHienTai, infoVN.loai, res, from, now);
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
       // --- Crypto: dùng Binance ---
@@ -552,9 +555,9 @@ let timerGiaVN = null;
 async function capNhatGiaVN() {
   const now = Math.floor(Date.now() / 1000);
   const from = now - 4 * 24 * 3600; // 4 ngày để chắc có 2 phiên
-  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma }) => {
+  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
     try {
-      const bars = await goiEntrade(ma, 'D', from, now);
+      const bars = await goiEntrade(ma, loai, 'D', from, now);
       if (!bars.length) return;
       const last = bars[bars.length - 1];
       const prev = bars.length > 1 ? bars[bars.length - 2] : null;
