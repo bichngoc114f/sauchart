@@ -48,11 +48,13 @@ const CHI_BAO = [
   { id: 'sma55', nhom: 'Trên giá', ten: 'SMA 55', mau: MAU.sma55 },
   { id: 'ema200', nhom: 'Trên giá', ten: 'EMA 200', mau: MAU.ema200 },
   { id: 'bb', nhom: 'Trên giá', ten: 'Bollinger Bands (20, 2)', mau: MAU.bb },
+  { id: 'bbGia20', nhom: 'Trên giá', ten: 'BB Giá (20, 2.0)', mau: MAU.bb20 },
+  { id: 'bbGia55', nhom: 'Trên giá', ten: 'BB Giá (55, 2.1)', mau: MAU.bb55 },
   { id: 'rsi', nhom: 'Khung dưới', ten: 'RSI của Sâu (RSI14 + EMA9, WMA45, BB20, BB55)', mau: MAU.rsi },
 ];
 // Mặc định giống màn hình TradingView của Sâu: VWAP + Volume + RSI
 const MAC_DINH = {
-  sma20: false, sma55: false, ema200: false, bb: false, volume: true,
+  sma20: false, sma55: false, ema200: false, bb: false, bbGia20: true, bbGia55: true, volume: true,
   vwapY: true, vwapQ: true, vwapM: true, vwapW: true, rsi: true,
 };
 
@@ -145,6 +147,16 @@ function taoSeries() {
     themDuong(0, 'rgba(41,98,255,0.7)', (i) => diem(t(i), ketQua.bb.duoi[i]));
     themDuong(0, 'rgba(41,98,255,0.5)', (i) => diem(t(i), ketQua.bb.giua[i]), { lineStyle: LC.LineStyle.Dashed });
   }
+  if (caiDat.bbGia20) {
+    themDuong(0, MAU.bb20Dai, (i) => diem(t(i), ketQua.bbGia20.tren[i]));
+    themDuong(0, MAU.bb20Dai, (i) => diem(t(i), ketQua.bbGia20.duoi[i]));
+    themDuong(0, MAU.bb20, (i) => diem(t(i), ketQua.bbGia20.giua[i]), NET_CHAM);
+  }
+  if (caiDat.bbGia55) {
+    themDuong(0, MAU.bb55Dai, (i) => diem(t(i), ketQua.bbGia55.tren[i]));
+    themDuong(0, MAU.bb55Dai, (i) => diem(t(i), ketQua.bbGia55.duoi[i]));
+    themDuong(0, MAU.bb55, (i) => diem(t(i), ketQua.bbGia55.giua[i]), NET_CHAM);
+  }
   if (caiDat.sma20) themDuong(0, MAU.sma20, (i) => diem(t(i), ketQua.sma20[i]), { lineWidth: 2 });
   if (caiDat.sma55) themDuong(0, MAU.sma55, (i) => diem(t(i), ketQua.sma55[i]), { lineWidth: 2 });
   if (caiDat.ema200) themDuong(0, MAU.ema200, (i) => diem(t(i), ketQua.ema200[i]), { lineWidth: 2 });
@@ -206,6 +218,8 @@ function tinhChiBao() {
     sma55: CB.sma(dong, 55),
     ema200: CB.ema(dong, 200),
     bb: CB.bollinger(dong, 20, 2),
+    bbGia20: CB.bollinger(dong, 20, 2.0),
+    bbGia55: CB.bollinger(dong, 55, 2.1),
     rsi,
     ema9: CB.ema(rsi, 9),
     wma45: CB.wma(rsi, 45),
@@ -330,6 +344,10 @@ function capNhatLegend(i) {
   them('sma20', 'SMA20', ketQua.sma20[i]);
   them('sma55', 'SMA55', ketQua.sma55[i]);
   them('ema200', 'EMA200', ketQua.ema200[i]);
+  if (caiDat.bbGia20 && ketQua.bbGia20)
+    html += `<span style="color:${MAU.bb20}">BB20 ${dinhDangGia(ketQua.bbGia20.giua[i])}</span>`;
+  if (caiDat.bbGia55 && ketQua.bbGia55)
+    html += `<span style="color:${MAU.bb55}">BB55 ${dinhDangGia(ketQua.bbGia55.giua[i])}</span>`;
   them('vwapY', 'VWAP-N', ketQua.vwapY[i] && ketQua.vwapY[i].value);
   them('vwapQ', 'VWAP-Q', ketQua.vwapQ[i] && ketQua.vwapQ[i].value);
   them('vwapM', 'VWAP-T', ketQua.vwapM[i] && ketQua.vwapM[i].value);
