@@ -113,8 +113,12 @@ def try_finfo(symbol, loai):
     # VNDirect finfo API — hỗ trợ cả cổ phiếu lẫn index (VNINDEX, VN30)
     url = (f"https://finfo-api.vndirect.com.vn/v4/stock_prices/"
            f"?symbol={symbol}&sort=date&size=1500&page=0")
-    d = fetch_json(url, {'Origin': 'https://www.vndirect.com.vn',
-                         'Referer': 'https://www.vndirect.com.vn/'})
+    h = dict(BROWSER_HDR)
+    h.update({'Origin': 'https://www.vndirect.com.vn',
+              'Referer': 'https://www.vndirect.com.vn/'})
+    req = urllib.request.Request(url, headers=h)
+    with urllib.request.urlopen(req, timeout=8) as r:
+        d = json.loads(r.read())
     items = d.get('data') or []
     if not items:
         return None
@@ -141,9 +145,23 @@ def try_finfo(symbol, loai):
     return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v} if len(t) >= 10 else None
 
 def try_stooq(symbol, loai):
-    # Stooq có dữ liệu VN index/stock dưới dạng CSV
-    stooq_sym = f"{symbol.lower()}.vn"
-    url = f"https://stooq.com/q/d/l/?s={stooq_sym}&i=d"
+    # Stooq CSV: cổ phiếu → acb.vn; index → thử nhiều ticker khác nhau
+    if loai == 'index':
+        candidates = [symbol.lower(), f"%5e{symbol.lower()}", f"{symbol.lower()}.vn"]
+    else:
+        candidates = [f"{symbol.lower()}.vn"]
+    for stooq_sym in candidates:
+        url = f"https://stooq.com/q/d/l/?s={stooq_sym}&i=d"
+        try:
+            result = _stooq_fetch(stooq_sym, url)
+            if result:
+                return result
+            print(f"  Stooq {stooq_sym}: no valid CSV data")
+        except Exception as e:
+            print(f"  Stooq {stooq_sym}: {e}")
+    return None
+
+def _stooq_fetch(stooq_sym, url):
     req = urllib.request.Request(url, headers=BROWSER_HDR)
     with urllib.request.urlopen(req, timeout=20) as r:
         content = r.read().decode('utf-8')
