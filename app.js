@@ -13,9 +13,9 @@ const DANH_SACH_MA = [
 
 // [mã Binance, nhãn hiển thị]
 const KHUNG_GIO = [
-  ['1m', '1m'], ['5m', '5m'], ['15m', '15m'], ['30m', '30m'],
+  ['15m', '15m'], ['30m', '30m'],
   ['1h', '1H'], ['2h', '2H'], ['4h', '4H'], ['8h', '8H'], ['12h', '12H'],
-  ['1d', '1D'], ['1w', '1W'],
+  ['1d', '1D'], ['2d', '2D'], ['3d', '3D'], ['1w', '1W'], ['1M', 'M'],
 ];
 
 const REST_URLS = ['https://data-api.binance.vision', 'https://api.binance.com'];
