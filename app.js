@@ -18,6 +18,9 @@ const KHUNG_GIO = [
   ['1d', '1D'], ['2d', '2D'], ['3d', '3D'], ['1w', '1W'], ['1M', 'M'],
 ];
 
+const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
+const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
+
 const REST_URLS = ['https://data-api.binance.vision', 'https://api.binance.com'];
 const WS_BASE = 'wss://data-stream.binance.vision';
 const LECH_GIO = 7 * 60 * 60; // Binance trả giờ UTC → cộng 7 tiếng cho giờ Việt Nam
@@ -44,16 +47,14 @@ const CHI_BAO = [
   { id: 'vwapM', nhom: 'VWAP', ten: 'VWAP Tháng', mau: MAU.vwapM },
   { id: 'vwapW', nhom: 'VWAP', ten: 'VWAP Tuần', mau: MAU.vwapW },
   { id: 'volume', nhom: 'Trên giá', ten: 'Khối lượng (Volume)', mau: '#787b86' },
-  { id: 'sma20', nhom: 'Trên giá', ten: 'SMA 20', mau: MAU.sma20 },
-  { id: 'sma55', nhom: 'Trên giá', ten: 'SMA 55', mau: MAU.sma55 },
-  { id: 'ema200', nhom: 'Trên giá', ten: 'EMA 200', mau: MAU.ema200 },
+  { id: 'cumMA', nhom: 'Trên giá', ten: 'Cụm MA (34·55·89·144·233·377·610·987)', mau: '#ffd700' },
   { id: 'bbGia20', nhom: 'Trên giá', ten: 'BB Giá (20, 2.0)', mau: MAU.bb20 },
   { id: 'bbGia55', nhom: 'Trên giá', ten: 'BB Giá (55, 2.1)', mau: MAU.bb55 },
   { id: 'rsi', nhom: 'Khung dưới', ten: 'RSI của Sâu (RSI14 + EMA9, WMA45, BB20, BB55)', mau: MAU.rsi },
 ];
 // Mặc định giống màn hình TradingView của Sâu: VWAP + Volume + RSI
 const MAC_DINH = {
-  sma20: false, sma55: false, ema200: false, bbGia20: true, bbGia55: true, volume: true,
+  cumMA: true, bbGia20: true, bbGia55: true, volume: true,
   vwapY: true, vwapQ: true, vwapM: true, vwapW: true, rsi: true,
 };
 
@@ -151,9 +152,11 @@ function taoSeries() {
     themDuong(0, MAU.bb55Dai, (i) => diem(t(i), ketQua.bbGia55.duoi[i]));
     themDuong(0, MAU.bb55, (i) => diem(t(i), ketQua.bbGia55.giua[i]), NET_CHAM);
   }
-  if (caiDat.sma20) themDuong(0, MAU.sma20, (i) => diem(t(i), ketQua.sma20[i]), { lineWidth: 2 });
-  if (caiDat.sma55) themDuong(0, MAU.sma55, (i) => diem(t(i), ketQua.sma55[i]), { lineWidth: 2 });
-  if (caiDat.ema200) themDuong(0, MAU.ema200, (i) => diem(t(i), ketQua.ema200[i]), { lineWidth: 2 });
+  if (caiDat.cumMA) {
+    CUM_MA_PERIODS.forEach((p, idx) => {
+      themDuong(0, MAU_CUM_MA[idx], (i) => diem(t(i), ketQua.cumMA[idx][i]));
+    });
+  }
 
   // --- VWAP: vẽ chấm tròn, nên sang kỳ mới tự "ngắt" chứ không nối dây
   ['vwapY', 'vwapQ', 'vwapM', 'vwapW'].forEach((id) => {
@@ -208,9 +211,7 @@ function tinhChiBao() {
   const dong = duLieuNen.map((n) => n.close);
   const rsi = CB.rsi(dong, 14);
   const kq = {
-    sma20: CB.sma(dong, 20),
-    sma55: CB.sma(dong, 55),
-    ema200: CB.ema(dong, 200),
+    cumMA: CUM_MA_PERIODS.map((p) => CB.sma(dong, p)),
     bbGia20: CB.bollinger(dong, 20, 2.0),
     bbGia55: CB.bollinger(dong, 55, 2.1),
     rsi,
@@ -334,9 +335,9 @@ function capNhatLegend(i) {
     `<b>C</b><span class="${cls}">${dinhDangGia(n.close)}</span>` +
     ` <span class="${cls}">(${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)</span></div><div class="lg-dong2">`;
   const them = (id, ten, v) => { if (caiDat[id]) html += `<span style="color:${MAU[id]}">${ten} ${dinhDangGia(v)}</span>`; };
-  them('sma20', 'SMA20', ketQua.sma20[i]);
-  them('sma55', 'SMA55', ketQua.sma55[i]);
-  them('ema200', 'EMA200', ketQua.ema200[i]);
+  if (caiDat.cumMA && ketQua.cumMA)
+    CUM_MA_PERIODS.forEach((p, idx) =>
+      html += `<span style="color:${MAU_CUM_MA[idx]}">MA${p} ${dinhDangGia(ketQua.cumMA[idx][i])}</span>`);
   if (caiDat.bbGia20 && ketQua.bbGia20)
     html += `<span style="color:${MAU.bb20}">BB20 ${dinhDangGia(ketQua.bbGia20.giua[i])}</span>`;
   if (caiDat.bbGia55 && ketQua.bbGia55)
