@@ -365,22 +365,7 @@ async function taiTienTo(ma, nenDau) {
   return cacPhan.flat();
 }
 
-// ---------- 5b. Đọc file JSON local (GitHub Actions cập nhật 30 phút/lần) ----------
-async function goiVNLocal(ma) {
-  let res;
-  try { res = await fetch(`data/${ma}.json`); } catch (e) { throw new Error('Không đọc được file dữ liệu'); }
-  if (res.status === 404) throw new Error(`Chưa có dữ liệu ${ma} — GitHub Action chưa chạy lần đầu`);
-  if (!res.ok) throw new Error(`Lỗi ${res.status} khi đọc ${ma}.json`);
-  const json = await res.json();
-  if (!json.t?.length) throw new Error('File dữ liệu trống');
-  return json.t.map((ts, i) => ({
-    time: ts,
-    open: json.o[i], high: json.h[i], low: json.l[i], close: json.c[i],
-    volume: json.v ? json.v[i] : 0,
-  })).filter((b) => b.open > 0);
-}
-
-// ---------- 5c. LẤY DỮ LIỆU VN INDEX TỪ TRÌNH DUYỆT (KBS / VPS / VNDirect) ----------
+// ---------- 5b. LẤY DỮ LIỆU VN TỪ TRÌNH DUYỆT (KBS / VPS / VNDirect) ----------
 
 function _kbsFmt(d) {
   // Date → DD-MM-YYYY cho KBS API
@@ -396,9 +381,9 @@ function _parseVNTime(t) {
   return { y, m: mo, d: da, h: tp ? +tp.split(':')[0] : 0 };
 }
 
-async function _fetchKBSChunk(sym, isHourly, from, to) {
+async function _fetchKBSChunk(sym, isHourly, from, to, kbsType = 'index') {
   const ep = isHourly ? 'data_60P' : 'data_day';
-  const url = `https://kbbuddywts.kbsec.com.vn/iis-server/investment/index/${sym}/${ep}` +
+  const url = `https://kbbuddywts.kbsec.com.vn/iis-server/investment/${kbsType}/${sym}/${ep}` +
               `?sdate=${_kbsFmt(from)}&edate=${_kbsFmt(to)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`KBS ${res.status}`);
@@ -598,6 +583,55 @@ async function goiIndexData(sym, khung) {
   throw new Error(`Không tải được dữ liệu ${sym}`);
 }
 
+async function goiKBSStock(sym, khung) {
+  const isHourly = khung === 'h4';
+  const today = new Date();
+  // KBS chỉ lưu ~500 nến giờ gần nhất (~5 tháng) → xin 6 tháng là đủ
+  const from = isHourly
+    ? new Date(today.getTime() - 180 * 86400000)
+    : new Date(Date.UTC(2015, 0, 1));
+  const raw = await _fetchKBSChunk(sym, isHourly, from, today, 'stocks');
+  if (isHourly) return _gopH4KBS(raw);
+  const daily = _rawToDaily(raw);
+  if (khung === '1d') return daily;
+  if (khung === '3d') return _gop3D(daily);
+  if (khung === '1w') return _gopTuan(daily);
+  if (khung === '1M') return _gopThang(daily);
+  return daily;
+}
+
+async function goiVPSStock(sym, khung) {
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - 15 * 365 * 86400;
+  const url = `https://histdatafeed.vps.com.vn/tradingview/history?symbol=${sym}&resolution=D&from=${from}&to=${to}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`VPS ${r.status}`);
+  const d = await r.json();
+  if (d.s !== 'ok' || !d.t?.length) throw new Error('VPS no data');
+  const daily = d.t.map((ts, i) => ({
+    time: ts, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v?.[i] || 0,
+  }));
+  if (khung === '1d') return daily;
+  if (khung === '3d') return _gop3D(daily);
+  if (khung === '1w') return _gopTuan(daily);
+  if (khung === '1M') return _gopThang(daily);
+  return daily;
+}
+
+async function goiStockData(sym, khung) {
+  try {
+    const data = await goiKBSStock(sym, khung);
+    if (data.length) return data;
+  } catch (e) { console.warn('KBS stock lỗi:', e); }
+  if (khung !== 'h4') {
+    try {
+      const data = await goiVPSStock(sym, khung);
+      if (data.length) return data;
+    } catch (e) { console.warn('VPS stock lỗi:', e); }
+  }
+  throw new Error(`Không tải được dữ liệu ${sym}`);
+}
+
 // ---------- 6. REAL-TIME ----------
 function moKetNoiRealtime(ma, khung) {
   if (wsNen) { wsNen.onclose = null; wsNen.close(); }
@@ -690,7 +724,7 @@ function capNhatLegend(i) {
 
 const khungLabel = () => {
   const infoVN = DANH_SACH_VN.find((x) => x.ma === maHienTai);
-  const list = infoVN?.loai === 'index' ? KHUNG_GIO_VN : KHUNG_GIO;
+  const list = infoVN ? KHUNG_GIO_VN : KHUNG_GIO;
   return (list.find((x) => x[0] === khungHienTai) || [khungHienTai, khungHienTai])[1];
 };
 
@@ -730,11 +764,9 @@ async function napBieuDo() {
     let nen, tienTo = [];
     if (infoVN) {
       if (infoVN.loai === 'index') {
-        // --- VN Index: KBS / VPS / VNDirect ---
         nen = await goiIndexData(maHienTai, khungHienTai);
       } else {
-        // --- Cổ phiếu VN: file JSON từ GitHub Actions ---
-        nen = await goiVNLocal(maHienTai);
+        nen = await goiStockData(maHienTai, khungHienTai);
       }
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
@@ -750,7 +782,7 @@ async function napBieuDo() {
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
     if (!infoVN) moKetNoiRealtime(maHienTai, khungHienTai);
-    else datTrangThai('Dữ liệu ngày · cập nhật 30 phút', 'ok');
+    else datTrangThai('KBS · dữ liệu VN', 'ok');
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
   }
@@ -761,10 +793,10 @@ function veNutKhungGio() {
   const box = document.getElementById('timeframes');
   box.innerHTML = '';
   const infoVN = DANH_SACH_VN.find((x) => x.ma === maHienTai);
-  const list = infoVN?.loai === 'index' ? KHUNG_GIO_VN : KHUNG_GIO;
+  const list = infoVN ? KHUNG_GIO_VN : KHUNG_GIO;
   // Nếu khung hiện tại không có trong danh sách mới → reset về mặc định
   if (!list.some((x) => x[0] === khungHienTai)) {
-    khungHienTai = list[1][0]; // '1d' cho VN index, '1d' cho crypto
+    khungHienTai = list[1][0]; // '1d' cho VN, '1d' cho crypto
   }
   list.forEach(([id, nhan]) => {
     const btn = document.createElement('button');
@@ -823,16 +855,11 @@ let timerGiaVN = null;
 async function capNhatGiaVN() {
   await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
     try {
-      let bars;
-      if (loai === 'index') {
-        // Lấy giá mới nhất từ KBS: chỉ cần 14 ngày gần đây
-        const today = new Date();
-        const twoWeeksAgo = new Date(today.getTime() - 14*86400000);
-        const raw = await _fetchKBSChunk(ma, false, twoWeeksAgo, today);
-        bars = _rawToDaily(raw);
-      } else {
-        bars = await goiVNLocal(ma);
-      }
+      const today = new Date();
+      const twoWeeksAgo = new Date(today.getTime() - 14 * 86400000);
+      const kbsType = loai === 'index' ? 'index' : 'stocks';
+      const raw = await _fetchKBSChunk(ma, false, twoWeeksAgo, today, kbsType);
+      const bars = _rawToDaily(raw);
       if (!bars.length) return;
       const last = bars[bars.length - 1];
       const prev = bars.length > 1 ? bars[bars.length - 2] : null;
