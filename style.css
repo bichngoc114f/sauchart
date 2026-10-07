@@ -145,6 +145,111 @@ button { font-family: inherit; }
 .up { color: var(--up); }
 .down { color: var(--down); }
 
+/* ===== EA overlays ===== */
+.ea-status {
+  position: absolute;
+  top: 36px;
+  z-index: 9;
+  background: rgba(29,31,40,0.92);
+  border: 1px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  font-size: 11px;
+  min-width: 160px;
+  max-width: 260px;
+}
+.eas-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.eas-collapse {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 10px; padding: 0 2px; line-height: 1;
+}
+.eas-body { padding: 3px 0; }
+.ea-status.eas-thu .eas-body { display: none; }
+.ea-status.eas-thu .eas-collapse { transform: rotate(180deg); }
+.eas-row {
+  display: flex; gap: 6px; align-items: baseline;
+  padding: 2px 8px; line-height: 1.4;
+}
+.eas-leg { font-weight: 700; font-size: 10px; min-width: 28px; }
+
+/* Trade list — bottom sheet */
+.ea-trades {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  z-index: 20;
+  background: var(--panel);
+  border-top: 2px solid var(--border);
+  max-height: 55%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.4);
+}
+.eat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#eaTradesList {
+  overflow-y: auto;
+  flex: 1;
+  font-size: 11px;
+}
+.eat-nhom-header {
+  padding: 5px 10px;
+  font-weight: 700;
+  font-size: 11px;
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+}
+.eat-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 1fr 1fr 1fr 56px 1fr;
+  gap: 2px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  align-items: center;
+}
+.eat-row:hover { background: var(--border); }
+.eat-open { opacity: 0.8; }
+.eat-leg { font-weight: 700; font-size: 10px; }
+.eat-time { color: var(--muted); }
+.eat-price { font-variant-numeric: tabular-nums; }
+.eat-pct { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.eat-win .eat-pct { color: var(--up); }
+.eat-loss .eat-pct { color: var(--down); }
+.eat-reason { color: var(--muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ea-vn-note {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Trên máy tính, trade list hiện bên phải */
+@media (min-width: 821px) {
+  .ea-trades {
+    bottom: 0; top: 0; left: auto;
+    right: 0; width: 380px;
+    max-height: 100%;
+    border-top: none;
+    border-left: 2px solid var(--border);
+    box-shadow: -4px 0 16px rgba(0,0,0,0.3);
+  }
+}
+
 /* ===== Bảng cài đặt chỉ báo ===== */
 .panel {
   position: fixed;

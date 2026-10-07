@@ -30,6 +30,7 @@
     </div>
     <div class="timeframes" id="timeframes"></div>
     <button class="icon-btn" id="btnCaiDat">⚙︎ Chỉ báo</button>
+    <button class="icon-btn" id="btnEA">⚡ EA</button>
     <div class="status" id="status"><span class="dot">●</span><span class="status-text">Đang kết nối...</span></div>
   </header>
 
@@ -43,6 +44,15 @@
         <div class="ng-gia"></div>
         <div class="ng-dem"></div>
       </div>
+      <!-- EA overlays -->
+      <div id="eaStatus" class="ea-status" style="display:none"></div>
+      <div id="eaTrades" class="ea-trades" style="display:none">
+        <div class="eat-head">
+          <span>Lệnh EA L5</span>
+          <button id="btnDongTrades">✕</button>
+        </div>
+        <div id="eaTradesList"></div>
+      </div>
     </section>
 
     <!-- Watchlist: bên phải trên máy tính, thành dải ngang trên điện thoại -->
@@ -51,6 +61,40 @@
       <div id="watchlist"></div>
     </aside>
   </main>
+
+  <!-- Bảng EA -->
+  <div class="panel" id="panelEA" hidden>
+    <div class="panel-box">
+      <div class="panel-head">
+        <span>⚡ EA</span>
+        <button class="icon-btn" id="btnDongEA">✕</button>
+      </div>
+      <div id="eaPanelBody">
+        <div class="panel-nhom">EA</div>
+        <label class="panel-dong" id="eaL5Row">
+          <input type="checkbox" id="eaL5On">
+          <i style="background:#f5c518;width:14px;height:14px;border-radius:3px"></i>
+          <span>L5</span>
+        </label>
+        <div class="panel-nhom">Luồng</div>
+        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="D">
+          <i style="background:#f5c518"></i><span>D</span></label>
+        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H4">
+          <i style="background:#00bcd4"></i><span>H4</span></label>
+        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H8">
+          <i style="background:#ab47bc"></i><span>H8</span></label>
+        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H12">
+          <i style="background:#ff7043"></i><span>H12</span></label>
+        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="Trap">
+          <i style="background:#66bb6a"></i><span>Trap</span></label>
+        <div class="panel-nhom">Hiển thị</div>
+        <label class="panel-dong"><input type="checkbox" id="eaShowSL"><span>Đường SL</span></label>
+        <label class="panel-dong"><input type="checkbox" id="eaShowBTS"><span>Bảng trạng thái</span></label>
+        <label class="panel-dong"><input type="checkbox" id="eaShowDS"><span>Danh sách lệnh</span></label>
+        <div id="eaVNNote" class="ea-vn-note" style="display:none">Chưa có EA cho chứng khoán</div>
+      </div>
+    </div>
+  </div>
 
   <!-- Bảng bật/tắt chỉ báo -->
   <div class="panel" id="panelCaiDat" hidden>
@@ -63,6 +107,8 @@
     </div>
   </div>
 
+  <script src="ea-l5-engine.js"></script>
+  <script src="ea-l5-data.js"></script>
   <script src="indicators.js"></script>
   <script src="app.js"></script>
 </body>

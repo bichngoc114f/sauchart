@@ -791,6 +791,12 @@ async function napBieuDo() {
     if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai); }
     else { datTrangThai('KBS · dữ liệu VN', 'ok'); }
     batDauNhanGia();
+    veNutEA();
+    if (caiDatEA.on && eaCoHoTro()) {
+      if (eaKetQua[maHienTai]) veEA(); else chayEA();
+    } else {
+      veEA(); // xoá drawing nếu không hỗ trợ
+    }
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
   }
@@ -1093,7 +1099,312 @@ document.getElementById('btnCaiDat').onclick = () => { panel.hidden = !panel.hid
 document.getElementById('btnDong').onclick = () => { panel.hidden = true; };
 panel.onclick = (e) => { if (e.target === panel) panel.hidden = true; };
 
-// ---------- 11. ĐIỆN THOẠI: quay lại app thì tải lại cho mới ----------
+// ---------- 11. EA L5 ----------
+const EA_MAUS = { D: '#f5c518', H4: '#00bcd4', H8: '#ab47bc', H12: '#ff7043', Trap: '#66bb6a' };
+const EA_LUONGS = ['D', 'H4', 'H8', 'H12', 'Trap'];
+const EA_MA_HO_TRO = ['BTCUSDT', 'ETHUSDT', 'PAXGUSDT'];
+
+const EA_DEFAULT = { on: false, D: true, H4: true, H8: true, H12: true, Trap: true, sl: true, bts: true, ds: false };
+let caiDatEA = Object.assign({}, EA_DEFAULT, docBoNho('ea', {}));
+
+let eaKetQua = {};     // { 'BTCUSDT': { trades, status, thongKe } }
+let eaTimerRefresh = null;
+let eaMarkers = null;  // ISeriesMarkersPluginApi
+let eaSlSeries = {};   // { D: LineSeries, ... }
+let eaLoading = false;
+
+function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai); }
+
+function eaFmtVN(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms + 7 * 3600000);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
+// Snap UTC-ms trade time → chart candle time (binary search)
+function eaSnapToNen(tradeT_ms) {
+  if (!duLieuNen.length) return null;
+  const ts = Math.floor(tradeT_ms / 1000) + LECH_GIO;
+  if (ts < duLieuNen[0].time) return null;
+  let lo = 0, hi = duLieuNen.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (duLieuNen[mid].time <= ts) lo = mid; else hi = mid - 1;
+  }
+  return duLieuNen[lo].time;
+}
+
+// Xoá toàn bộ drawing EA
+function eaXoaVe() {
+  if (eaMarkers) { try { eaMarkers.detach(); } catch (e) {} eaMarkers = null; }
+  for (const s of Object.values(eaSlSeries)) { try { chart.removeSeries(s); } catch (e) {} }
+  eaSlSeries = {};
+}
+
+function eaVeMarkers(kq) {
+  if (eaMarkers) { try { eaMarkers.detach(); } catch (e) {} eaMarkers = null; }
+  if (!kq?.trades?.length) return;
+  const markers = [];
+  for (const tr of kq.trades) {
+    if (!caiDatEA[tr.leg]) continue;
+    const et = eaSnapToNen(tr.entryT);
+    if (et === null) continue;
+    markers.push({ time: et, position: 'belowBar', color: EA_MAUS[tr.leg], shape: 'arrowUp', text: tr.leg, size: 1 });
+    if (tr.exitT !== null) {
+      const xt = eaSnapToNen(tr.exitT);
+      if (xt !== null) {
+        const pct = tr.pnlPct || 0;
+        markers.push({ time: xt, position: 'aboveBar', color: pct >= 0 ? '#26a69a' : '#ef5350',
+          shape: 'arrowDown', text: (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%', size: 1 });
+      }
+    }
+  }
+  markers.sort((a, b) => a.time - b.time);
+  if (!markers.length) return;
+  try {
+    if (typeof LC.createSeriesMarkers === 'function') {
+      eaMarkers = LC.createSeriesMarkers(nenSeries, markers);
+    } else if (typeof nenSeries.setMarkers === 'function') {
+      nenSeries.setMarkers(markers); // LC v4 fallback
+    }
+  } catch (e) { console.warn('EA markers:', e); }
+}
+
+function eaVeSL(kq) {
+  for (const s of Object.values(eaSlSeries)) { try { chart.removeSeries(s); } catch (e) {} }
+  eaSlSeries = {};
+  if (!kq?.trades?.length || !caiDatEA.sl) return;
+  for (const leg of EA_LUONGS) {
+    if (!caiDatEA[leg]) continue;
+    const legTrades = kq.trades.filter(t => t.leg === leg).sort((a, b) => a.entryT - b.entryT);
+    if (!legTrades.length) continue;
+    const raw = [];
+    for (const tr of legTrades) {
+      if (tr.slHist) {
+        for (const sl of tr.slHist) {
+          const t = eaSnapToNen(sl.t);
+          if (t !== null) raw.push({ time: t, value: sl.sl });
+        }
+      }
+      if (tr.exitT !== null) {
+        const xt = eaSnapToNen(tr.exitT);
+        if (xt !== null) raw.push({ time: xt + 60 }); // gap sau exit
+      }
+    }
+    raw.sort((a, b) => a.time - b.time);
+    const data = [];
+    for (const p of raw) {
+      if (data.length && data[data.length - 1].time === p.time) {
+        if (p.value != null) data[data.length - 1] = p;
+      } else {
+        data.push(p);
+      }
+    }
+    if (!data.length) continue;
+    try {
+      const s = chart.addSeries(LC.LineSeries, {
+        priceScaleId: 'left', color: EA_MAUS[leg], lineWidth: 1,
+        lineStyle: LC.LineStyle.Dashed, lineType: LC.LineType.WithSteps,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
+      s.setData(data);
+      eaSlSeries[leg] = s;
+    } catch (e) { console.warn('EA SL series:', e); }
+  }
+}
+
+function eaVeStatus(kq) {
+  const el = document.getElementById('eaStatus');
+  if (!el) return;
+  if (!kq || !caiDatEA.bts) { el.style.display = 'none'; return; }
+  let trai = 60;
+  try { trai = chart.priceScale('left').width() + 8; } catch (e) {}
+  el.style.left = trai + 'px';
+  const bias = kq.status?.bias || {};
+  const legs = kq.status?.legs || {};
+  const legRow = (l) => {
+    if (!caiDatEA[l]) return '';
+    const d = legs[l];
+    let txt = 'Chờ tín hiệu';
+    if (d?.pos) txt = `Mở @${dinhDangGia(d.pos.price)}, SL ${dinhDangGia(d.pos.sl)}`;
+    else if (d?.waiting) txt = 'Chờ xác nhận H1';
+    else if (d?.breakout) txt = 'Đã breakout';
+    return `<div class="eas-row"><span class="eas-leg" style="color:${EA_MAUS[l]}">${l}</span><span>${txt}</span></div>`;
+  };
+  const biasStr = bias.valid
+    ? `✓ ${bias.method || ''} ${bias.start ? '(' + eaFmtVN(bias.start).slice(0, 5) + ')' : ''}`
+    : '✗ Không hợp lệ';
+  el.innerHTML =
+    `<div class="eas-head"><span>EA L5</span><button class="eas-collapse" onclick="this.closest('.ea-status').classList.toggle('eas-thu')">◀</button></div>` +
+    `<div class="eas-body">` +
+    `<div class="eas-row"><span class="eas-leg" style="color:#aaa">W</span><span>${biasStr}</span></div>` +
+    EA_LUONGS.map(legRow).join('') +
+    `</div>`;
+  el.style.display = '';
+}
+
+function eaVeTrades(kq) {
+  const panel = document.getElementById('eaTrades');
+  const list = document.getElementById('eaTradesList');
+  if (!panel || !list) return;
+  if (!kq || !caiDatEA.ds) { panel.style.display = 'none'; return; }
+  const trades = [...kq.trades].reverse();
+  let html = '';
+  for (const leg of EA_LUONGS) {
+    if (!caiDatEA[leg]) continue;
+    const lt = trades.filter(t => t.leg === leg);
+    if (!lt.length) continue;
+    const tk = kq.thongKe?.[leg] || {};
+    html += `<div class="eat-nhom-header" style="border-left:3px solid ${EA_MAUS[leg]}">` +
+      `${leg} — ${tk.total || 0} lệnh · Tổng ${tk.tongPct >= 0 ? '+' : ''}${tk.tongPct || 0}% · Thắng ${tk.thang || 0}</div>`;
+    for (const tr of lt) {
+      const pct = tr.pnlPct || 0;
+      const isOpen = tr.exitT === null;
+      const cls = isOpen ? 'eat-open' : pct >= 0 ? 'eat-win' : 'eat-loss';
+      html += `<div class="eat-row ${cls}" data-entry="${tr.entryT}">` +
+        `<span class="eat-leg" style="color:${EA_MAUS[tr.leg]}">${tr.leg}</span>` +
+        `<span class="eat-time">${eaFmtVN(tr.entryT)}</span>` +
+        `<span class="eat-price">${dinhDangGia(tr.entry)}</span>` +
+        `<span class="eat-time">${isOpen ? '⏳' : eaFmtVN(tr.exitT)}</span>` +
+        `<span class="eat-price">${isOpen ? '—' : dinhDangGia(tr.exit)}</span>` +
+        `<span class="eat-pct">${isOpen ? 'Mở' : (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'}</span>` +
+        `<span class="eat-reason">${tr.reason || ''}</span></div>`;
+    }
+  }
+  list.innerHTML = html;
+  list.querySelectorAll('.eat-row[data-entry]').forEach(row => {
+    row.onclick = () => {
+      const t = eaSnapToNen(+row.dataset.entry);
+      if (t === null) return;
+      const i = timNen(t);
+      if (i >= 0) chart.timeScale().setVisibleLogicalRange({ from: i - 50, to: i + 50 });
+    };
+  });
+  panel.style.display = '';
+}
+
+function veEA() {
+  eaXoaVe();
+  const show = caiDatEA.on && eaCoHoTro();
+  if (!show) {
+    document.getElementById('eaStatus').style.display = 'none';
+    document.getElementById('eaTrades').style.display = 'none';
+    return;
+  }
+  const kq = eaKetQua[maHienTai];
+  if (!kq) return;
+  eaVeMarkers(kq);
+  eaVeSL(kq);
+  eaVeStatus(kq);
+  eaVeTrades(kq);
+}
+
+async function chayEA() {
+  if (eaLoading || !eaCoHoTro() || !caiDatEA.on) return;
+  eaLoading = true;
+  try {
+    eaKetQua[maHienTai] = await L5Data.chayL5(maHienTai, msg => datTrangThai(msg));
+    const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
+    if (!isVN) datTrangThai('KBS · EA sẵn sàng', 'ok');
+    veEA();
+  } catch (e) {
+    datTrangThai('Lỗi EA: ' + e.message, 'err');
+  } finally {
+    eaLoading = false;
+  }
+}
+
+function eaLapLichLamMoi() {
+  if (eaTimerRefresh) clearTimeout(eaTimerRefresh);
+  const interval = 15 * 60 * 1000;
+  const offset = 30 * 1000;
+  const now = Date.now();
+  const next = Math.ceil((now - offset) / interval) * interval + offset;
+  const delay = Math.max(next - now, 10000);
+  eaTimerRefresh = setTimeout(async () => {
+    if (caiDatEA.on && eaCoHoTro()) {
+      delete eaKetQua[maHienTai];
+      await napBieuDo();
+      await chayEA();
+    }
+    eaLapLichLamMoi();
+  }, delay);
+}
+
+function veNutEA() {
+  const btn = document.getElementById('btnEA');
+  if (!btn) return;
+  const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
+  btn.disabled = isVN;
+  btn.style.opacity = isVN ? '0.45' : '';
+  btn.title = isVN ? 'Chưa có EA cho chứng khoán' : '';
+  const note = document.getElementById('eaVNNote');
+  if (note) note.style.display = isVN ? '' : 'none';
+}
+
+function khoiDongEAPanel() {
+  const panelEA = document.getElementById('panelEA');
+  document.getElementById('btnEA').onclick = () => { panelEA.hidden = !panelEA.hidden; };
+  document.getElementById('btnDongEA').onclick = () => { panelEA.hidden = true; };
+  panelEA.onclick = (e) => { if (e.target === panelEA) panelEA.hidden = true; };
+  document.getElementById('btnDongTrades').onclick = () => {
+    caiDatEA.ds = false;
+    document.getElementById('eaShowDS').checked = false;
+    ghiBoNho('ea', caiDatEA);
+    document.getElementById('eaTrades').style.display = 'none';
+  };
+
+  // Sync checkboxes from state
+  document.getElementById('eaL5On').checked = caiDatEA.on;
+  EA_LUONGS.forEach(l => {
+    const cb = document.querySelector(`.ea-luong[data-leg="${l}"]`);
+    if (cb) cb.checked = !!caiDatEA[l];
+  });
+  document.getElementById('eaShowSL').checked = !!caiDatEA.sl;
+  document.getElementById('eaShowBTS').checked = !!caiDatEA.bts;
+  document.getElementById('eaShowDS').checked = !!caiDatEA.ds;
+
+  // Master EA toggle
+  document.getElementById('eaL5On').onchange = async (e) => {
+    caiDatEA.on = e.target.checked;
+    ghiBoNho('ea', caiDatEA);
+    if (caiDatEA.on && !eaKetQua[maHienTai]) {
+      await chayEA();
+    } else {
+      veEA();
+    }
+    eaLapLichLamMoi();
+  };
+
+  // Leg toggles
+  document.querySelectorAll('.ea-luong').forEach(cb => {
+    cb.onchange = (e) => {
+      caiDatEA[e.target.dataset.leg] = e.target.checked;
+      ghiBoNho('ea', caiDatEA);
+      veEA();
+    };
+  });
+
+  // Display toggles
+  document.getElementById('eaShowSL').onchange = (e) => {
+    caiDatEA.sl = e.target.checked;
+    ghiBoNho('ea', caiDatEA);
+    veEA();
+  };
+  document.getElementById('eaShowBTS').onchange = (e) => {
+    caiDatEA.bts = e.target.checked;
+    ghiBoNho('ea', caiDatEA);
+    eaVeStatus(eaKetQua[maHienTai] || null);
+  };
+  document.getElementById('eaShowDS').onchange = async (e) => {
+    caiDatEA.ds = e.target.checked;
+    ghiBoNho('ea', caiDatEA);
+    eaVeTrades(eaKetQua[maHienTai] || null);
+  };
+}
+
+// ---------- 12. ĐIỆN THOẠI: quay lại app thì tải lại cho mới ----------
 let anLuc = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { anLuc = Date.now(); return; }
@@ -1110,7 +1421,9 @@ document.addEventListener('visibilitychange', () => {
 veNutKhungGio();
 veWatchlist();
 veBangCaiDat();
+khoiDongEAPanel();
 taoSeries();
 moKetNoiWatchlist();
 batDauPollingVN();
+eaLapLichLamMoi();
 napBieuDo();
