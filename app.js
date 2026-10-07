@@ -781,8 +781,8 @@ async function napBieuDo() {
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
-    if (!infoVN) moKetNoiRealtime(maHienTai, khungHienTai);
-    else datTrangThai('KBS · dữ liệu VN', 'ok');
+    if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai); dungDemNguoc(); }
+    else { datTrangThai('KBS · dữ liệu VN', 'ok'); batDauDemNguoc(); }
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
   }
@@ -879,6 +879,64 @@ function batDauPollingVN() {
   capNhatGiaVN();
   if (timerGiaVN) clearInterval(timerGiaVN);
   timerGiaVN = setInterval(capNhatGiaVN, 60000);
+}
+
+// ---------- 9b. ĐỒNG HỒ ĐẾM NGƯỢC PHIÊN GIAO DỊCH ----------
+let timerDemNguoc = null;
+
+function tinhDemNguoc() {
+  const MO_CUA   = 9 * 3600;
+  const DONG_SANG = 11 * 3600 + 30 * 60;
+  const MO_CHIEU  = 13 * 3600;
+  const DONG_CHIEU = 14 * 3600 + 30 * 60;
+  const ATC        = 14 * 3600 + 45 * 60;
+
+  // Thời gian hiện tại theo múi giờ VN (UTC+7)
+  const now = new Date(Date.now() + 7 * 3600000);
+  const t = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+  const day = now.getUTCDay(); // 0=CN, 6=T7
+
+  if (day === 6) return { label: 'T2 mở cửa', secs: 2 * 86400 - t + MO_CUA };
+  if (day === 0) return { label: 'T2 mở cửa', secs: 1 * 86400 - t + MO_CUA };
+  if (t < MO_CUA)     return { label: 'Mở cửa',    secs: MO_CUA - t };
+  if (t < DONG_SANG)  return { label: 'Đóng sáng', secs: DONG_SANG - t };
+  if (t < MO_CHIEU)   return { label: 'Mở chiều',  secs: MO_CHIEU - t };
+  if (t < DONG_CHIEU) return { label: 'Đóng chiều', secs: DONG_CHIEU - t };
+  if (t < ATC)        return { label: 'ATC',        secs: ATC - t };
+  const d = day === 5 ? 3 : 1;
+  return { label: 'Ngày mai', secs: d * 86400 - t + MO_CUA };
+}
+
+function _fmtSecs(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sc = s % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
+  return `${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
+}
+
+function batDauDemNguoc() {
+  const el = document.getElementById('demNguoc');
+  if (!el) return;
+  el.style.display = '';
+  el.innerHTML = '<span class="dn-label"></span><span class="dn-time"></span>';
+  const lbl = el.querySelector('.dn-label');
+  const tim = el.querySelector('.dn-time');
+  function tick() {
+    const r = tinhDemNguoc();
+    lbl.textContent = r.label;
+    tim.textContent = _fmtSecs(r.secs);
+  }
+  tick();
+  if (timerDemNguoc) clearInterval(timerDemNguoc);
+  timerDemNguoc = setInterval(tick, 1000);
+}
+
+function dungDemNguoc() {
+  if (timerDemNguoc) { clearInterval(timerDemNguoc); timerDemNguoc = null; }
+  const el = document.getElementById('demNguoc');
+  if (el) el.style.display = 'none';
 }
 
 let wsWatch = null;

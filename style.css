@@ -97,6 +97,38 @@ button { font-family: inherit; }
 .legend-rsi span { margin-right: 10px; white-space: nowrap; display: inline-block; }
 .legend-rsi { display: none; }
 
+/* Đồng hồ đếm ngược phiên giao dịch */
+.dem-nguoc {
+  position: absolute;
+  bottom: 36px; /* trên trục thời gian */
+  left: 0;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.dem-nguoc .dn-label {
+  font-size: 10px;
+  color: var(--muted);
+  background: rgba(29,31,40,0.82);
+  padding: 1px 6px 0;
+  border-radius: 0 3px 0 0;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.dem-nguoc .dn-time {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: rgba(29,31,40,0.82);
+  padding: 1px 6px 3px;
+  border-radius: 0 0 3px 0;
+  white-space: nowrap;
+}
+
 /* ===== Watchlist ===== */
 .watchlist {
   width: 250px;
