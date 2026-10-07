@@ -57,6 +57,11 @@ const KHUNG_GIO = [
   ['1d', '1D'], ['2d', '2D'], ['3d', '3D'], ['1w', '1W'], ['1M', 'M'],
 ];
 
+// Khung giờ cho VN index (VNINDEX, VN30): chỉ H4, D, 3D, W, M
+const KHUNG_GIO_VN = [
+  ['h4', 'H4'], ['1d', 'D'], ['3d', '3D'], ['1w', 'W'], ['1M', 'M'],
+];
+
 const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
 const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
 
@@ -118,7 +123,7 @@ let caiDat = Object.assign({}, MAC_DINH, docBoNho('caidat2', {}));
 let maHienTai = docBoNho('ma', 'BTCUSDT');
 let khungHienTai = docBoNho('khung', '1h');
 if (![...DANH_SACH_MA, ...DANH_SACH_VN].some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
-if (!KHUNG_GIO.some((x) => x[0] === khungHienTai)) khungHienTai = '1h';
+if (![...KHUNG_GIO, ...KHUNG_GIO_VN].some((x) => x[0] === khungHienTai)) khungHienTai = '1h';
 
 let duLieuNen = [];    // nến của biểu đồ
 let nenTienTo = [];    // nến 1H từ đầu năm tới trước nến đầu tiên — chỉ để tính VWAP Năm/Quý
@@ -375,6 +380,224 @@ async function goiVNLocal(ma) {
   })).filter((b) => b.open > 0);
 }
 
+// ---------- 5c. LẤY DỮ LIỆU VN INDEX TỪ TRÌNH DUYỆT (KBS / VPS / VNDirect) ----------
+
+function _kbsFmt(d) {
+  // Date → DD-MM-YYYY cho KBS API
+  return String(d.getUTCDate()).padStart(2,'0') + '-' +
+         String(d.getUTCMonth()+1).padStart(2,'0') + '-' +
+         d.getUTCFullYear();
+}
+
+function _parseVNTime(t) {
+  // "2026-10-07 09:00" → {y, m, d, h}
+  const [dp, tp] = t.split(' ');
+  const [y, mo, da] = dp.split('-').map(Number);
+  return { y, m: mo, d: da, h: tp ? +tp.split(':')[0] : 0 };
+}
+
+async function _fetchKBSChunk(sym, isHourly, from, to) {
+  const ep = isHourly ? 'data_60P' : 'data_day';
+  const url = `https://kbbuddywts.kbsec.com.vn/iis-server/investment/index/${sym}/${ep}` +
+              `?sdate=${_kbsFmt(from)}&edate=${_kbsFmt(to)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`KBS ${res.status}`);
+  const d = await res.json();
+  const arr = d[ep] || [];
+  // Mới nhất đứng trước → reverse; giá có thể là chuỗi
+  return arr.slice().reverse().map(item => ({
+    t: item.t,
+    o: +item.o, h: +item.h, l: +item.l, c: +item.c, v: +(item.v || 0),
+  }));
+}
+
+function _gopH4KBS(raw) {
+  // Gộp nến giờ KBS (giờ VN) → H4: sáng 09:00 (9,10,11h), chiều 13:00 (13,14,15h)
+  const sess = new Map();
+  for (const bar of raw) {
+    const { y, m, d, h } = _parseVNTime(bar.t);
+    let sid = null;
+    if (h >= 9 && h <= 11)  sid = `${y}-${m}-${d}-AM`;
+    if (h >= 13 && h <= 15) sid = `${y}-${m}-${d}-PM`;
+    if (!sid) continue;
+    if (!sess.has(sid)) sess.set(sid, { y, m, d, am: h <= 11, bars: [] });
+    sess.get(sid).bars.push(bar);
+  }
+  const out = [];
+  for (const [, { y, m, d, am, bars }] of sess) {
+    if (!bars.length) continue;
+    // timestamp: hiển thị giờ VN trên chart (chart không cộng thêm offset cho dữ liệu VN)
+    const h = am ? 9 : 13;
+    out.push({
+      time: Date.UTC(y, m-1, d, h) / 1000,
+      open: bars[0].o,
+      high: Math.max(...bars.map(b => b.h)),
+      low:  Math.min(...bars.map(b => b.l)),
+      close: bars[bars.length-1].c,
+      volume: bars.reduce((s, b) => s + b.v, 0),
+    });
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+
+function _rawToDaily(raw) {
+  return raw.map(bar => {
+    const { y, m, d } = _parseVNTime(bar.t);
+    return { time: Date.UTC(y, m-1, d) / 1000, open: bar.o, high: bar.h, low: bar.l, close: bar.c, volume: bar.v };
+  });
+}
+
+function _gop3D(daily) {
+  const out = [];
+  for (let i = 0; i < daily.length; i += 3) {
+    const g = daily.slice(i, i+3);
+    out.push({ time: g[0].time, open: g[0].open, high: Math.max(...g.map(b=>b.high)),
+               low: Math.min(...g.map(b=>b.low)), close: g[g.length-1].close,
+               volume: g.reduce((s,b)=>s+b.volume,0) });
+  }
+  return out;
+}
+
+function _gopTuan(daily) {
+  const m = new Map();
+  for (const b of daily) {
+    const dow = new Date(b.time*1000).getUTCDay();
+    const mon = b.time - ((dow === 0 ? 6 : dow-1) * 86400);
+    if (!m.has(mon)) m.set(mon, []);
+    m.get(mon).push(b);
+  }
+  const out = [];
+  for (const [t, g] of m) {
+    out.push({ time: t, open: g[0].open, high: Math.max(...g.map(b=>b.high)),
+               low: Math.min(...g.map(b=>b.low)), close: g[g.length-1].close,
+               volume: g.reduce((s,b)=>s+b.volume,0) });
+  }
+  return out.sort((a,b)=>a.time-b.time);
+}
+
+function _gopThang(daily) {
+  const m = new Map();
+  for (const b of daily) {
+    const d = new Date(b.time*1000);
+    const k = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    if (!m.has(k)) m.set(k, { time: b.time, bars: [] });
+    m.get(k).bars.push(b);
+  }
+  const out = [];
+  for (const [, { time, bars }] of m) {
+    out.push({ time, open: bars[0].open, high: Math.max(...bars.map(b=>b.high)),
+               low: Math.min(...bars.map(b=>b.low)), close: bars[bars.length-1].close,
+               volume: bars.reduce((s,b)=>s+b.volume,0) });
+  }
+  return out.sort((a,b)=>a.time-b.time);
+}
+
+async function goiKBSIndex(sym, khung, fromYear) {
+  const isHourly = khung === 'h4';
+  const startY = fromYear || (isHourly ? 2023 : 2012);
+  const today = new Date();
+  const endY = today.getUTCFullYear();
+  const chunks = [];
+  for (let y = startY; y <= endY; y++) {
+    const from = new Date(Date.UTC(y, 0, 1));
+    const to   = new Date(Math.min(Date.UTC(y, 11, 31), today.getTime()));
+    chunks.push(_fetchKBSChunk(sym, isHourly, from, to));
+  }
+  const parts = await Promise.all(chunks);
+  // Gộp và loại trùng theo timestamp chuỗi
+  const seen = new Set();
+  const raw = [];
+  for (const p of parts) for (const b of p) { if (!seen.has(b.t)) { seen.add(b.t); raw.push(b); } }
+  raw.sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0);
+
+  if (isHourly) return _gopH4KBS(raw);
+  const daily = _rawToDaily(raw);
+  if (khung === '1d') return daily;
+  if (khung === '3d') return _gop3D(daily);
+  if (khung === '1w') return _gopTuan(daily);
+  if (khung === '1M') return _gopThang(daily);
+  return daily;
+}
+
+function _gopH4UTC(hourlyBars) {
+  // Gộp nến giờ UTC (VPS) → H4: sáng UTC 2-4h (=9-11h VN), chiều UTC 6-8h (=13-15h VN)
+  const sess = new Map();
+  for (const b of hourlyBars) {
+    const h = new Date(b.time*1000).getUTCHours();
+    let key = null;
+    if (h >= 2 && h <= 4) key = Math.floor(b.time/86400)*86400 + 2*3600;
+    if (h >= 6 && h <= 8) key = Math.floor(b.time/86400)*86400 + 6*3600;
+    if (key === null) continue;
+    if (!sess.has(key)) sess.set(key, []);
+    sess.get(key).push(b);
+  }
+  const out = [];
+  for (const [t, g] of sess) {
+    g.sort((a,b)=>a.time-b.time);
+    out.push({ time: t, open: g[0].open, high: Math.max(...g.map(b=>b.high)),
+               low: Math.min(...g.map(b=>b.low)), close: g[g.length-1].close,
+               volume: g.reduce((s,b)=>s+b.volume,0) });
+  }
+  return out.sort((a,b)=>a.time-b.time);
+}
+
+async function goiVPSIndex(sym, khung) {
+  const isHourly = khung === 'h4';
+  const to = Math.floor(Date.now()/1000);
+  const from = isHourly ? to - 90*86400 : to - 15*365*86400;
+  const res = isHourly ? '60' : 'D';
+  const url = `https://histdatafeed.vps.com.vn/tradingview/history?symbol=${sym}&resolution=${res}&from=${from}&to=${to}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`VPS ${r.status}`);
+  const d = await r.json();
+  if (d.s !== 'ok' || !d.t?.length) throw new Error('VPS no data');
+  const bars = d.t.map((ts, i) => ({
+    time: ts, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v?.[i] || 0,
+  }));
+  if (isHourly) return _gopH4UTC(bars);
+  if (khung === '1d') return bars;
+  if (khung === '3d') return _gop3D(bars);
+  if (khung === '1w') return _gopTuan(bars);
+  if (khung === '1M') return _gopThang(bars);
+  return bars;
+}
+
+async function goiVNDirectIndex(sym, khung) {
+  const to = Math.floor(Date.now()/1000);
+  const from = to - 15*365*86400;
+  const url = `https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=${sym}&from=${from}&to=${to}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`VNDirect ${r.status}`);
+  const d = await r.json();
+  if (d.s !== 'ok' || !d.t?.length) throw new Error('VNDirect no data');
+  const daily = d.t.map((ts, i) => ({
+    time: ts, open: d.o[i], high: d.h[i], low: d.l[i], close: d.c[i], volume: d.v?.[i] || 0,
+  }));
+  if (khung === '1d') return daily;
+  if (khung === '3d') return _gop3D(daily);
+  if (khung === '1w') return _gopTuan(daily);
+  if (khung === '1M') return _gopThang(daily);
+  return daily;
+}
+
+async function goiIndexData(sym, khung) {
+  try {
+    const data = await goiKBSIndex(sym, khung);
+    if (data.length) return data;
+  } catch (e) { console.warn('KBS lỗi:', e); }
+  try {
+    const data = await goiVPSIndex(sym, khung);
+    if (data.length) return data;
+  } catch (e) { console.warn('VPS lỗi:', e); }
+  if (khung !== 'h4') {
+    try {
+      const data = await goiVNDirectIndex(sym, khung);
+      if (data.length) return data;
+    } catch (e) { console.warn('VNDirect lỗi:', e); }
+  }
+  throw new Error(`Không tải được dữ liệu ${sym}`);
+}
+
 // ---------- 6. REAL-TIME ----------
 function moKetNoiRealtime(ma, khung) {
   if (wsNen) { wsNen.onclose = null; wsNen.close(); }
@@ -465,7 +688,11 @@ function capNhatLegend(i) {
   }
 }
 
-const khungLabel = () => KHUNG_GIO.find((x) => x[0] === khungHienTai)[1];
+const khungLabel = () => {
+  const infoVN = DANH_SACH_VN.find((x) => x.ma === maHienTai);
+  const list = infoVN?.loai === 'index' ? KHUNG_GIO_VN : KHUNG_GIO;
+  return (list.find((x) => x[0] === khungHienTai) || [khungHienTai, khungHienTai])[1];
+};
 
 // Rê chuột / chạm giữ trên biểu đồ → legend hiện số liệu của cây nến đó
 chart.subscribeCrosshairMove((param) => {
@@ -502,10 +729,13 @@ async function napBieuDo() {
   try {
     let nen, tienTo = [];
     if (infoVN) {
-      // --- Cổ phiếu VN: Yahoo Finance ---
-      const now = Math.floor(Date.now() / 1000);
-      const from = now - 3 * 365 * 24 * 3600;
-      nen = await goiVNLocal(maHienTai);
+      if (infoVN.loai === 'index') {
+        // --- VN Index: KBS / VPS / VNDirect ---
+        nen = await goiIndexData(maHienTai, khungHienTai);
+      } else {
+        // --- Cổ phiếu VN: file JSON từ GitHub Actions ---
+        nen = await goiVNLocal(maHienTai);
+      }
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
       // --- Crypto: dùng Binance ---
@@ -530,7 +760,13 @@ async function napBieuDo() {
 function veNutKhungGio() {
   const box = document.getElementById('timeframes');
   box.innerHTML = '';
-  KHUNG_GIO.forEach(([id, nhan]) => {
+  const infoVN = DANH_SACH_VN.find((x) => x.ma === maHienTai);
+  const list = infoVN?.loai === 'index' ? KHUNG_GIO_VN : KHUNG_GIO;
+  // Nếu khung hiện tại không có trong danh sách mới → reset về mặc định
+  if (!list.some((x) => x[0] === khungHienTai)) {
+    khungHienTai = list[1][0]; // '1d' cho VN index, '1d' cho crypto
+  }
+  list.forEach(([id, nhan]) => {
     const btn = document.createElement('button');
     btn.textContent = nhan;
     if (id === khungHienTai) btn.classList.add('active');
@@ -585,11 +821,18 @@ function veWatchlist() {
 
 let timerGiaVN = null;
 async function capNhatGiaVN() {
-  const now = Math.floor(Date.now() / 1000);
-  const from = now - 4 * 24 * 3600; // 4 ngày để chắc có 2 phiên
-  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma }) => {
+  await Promise.allSettled(DANH_SACH_VN.map(async ({ ma, loai }) => {
     try {
-      const bars = await goiVNLocal(ma);
+      let bars;
+      if (loai === 'index') {
+        // Lấy giá mới nhất từ KBS: chỉ cần 14 ngày gần đây
+        const today = new Date();
+        const twoWeeksAgo = new Date(today.getTime() - 14*86400000);
+        const raw = await _fetchKBSChunk(ma, false, twoWeeksAgo, today);
+        bars = _rawToDaily(raw);
+      } else {
+        bars = await goiVNLocal(ma);
+      }
       if (!bars.length) return;
       const last = bars[bars.length - 1];
       const prev = bars.length > 1 ? bars[bars.length - 2] : null;

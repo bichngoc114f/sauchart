@@ -3,7 +3,7 @@ import urllib.request, json, time, os, io, csv, http.cookiejar
 from datetime import datetime, timezone
 
 SYMBOLS = [
-    ('VNINDEX', 'index'), ('VN30', 'index'),
+    # VNINDEX và VN30 được trình duyệt lấy trực tiếp từ KBS (không qua GitHub Actions)
     ('ACB', 'stock'), ('BCM', 'stock'), ('BID', 'stock'), ('BVH', 'stock'),
     ('CTG', 'stock'), ('FPT', 'stock'), ('GAS', 'stock'), ('GVR', 'stock'),
     ('HDB', 'stock'), ('HPG', 'stock'), ('MBB', 'stock'), ('MSN', 'stock'),
@@ -422,135 +422,9 @@ def try_entrade(symbol, loai):
                 'l': d['l'], 'c': d['c'], 'v': d.get('v', [])}
     return None
 
-def try_eodhd(symbol, loai):
-    """EODHD (eodhistoricaldata.com) — free API key, toàn cầu, có VN index.
-    Indices dùng exchange INDX; VN stocks dùng exchange VN."""
-    if loai != 'index':
-        return None
-    api_key = os.environ.get('EODHD_KEY', '')
-    if not api_key:
-        print(f"  EODHD: EODHD_KEY chưa được set")
-        return None
-    from_date = datetime.fromtimestamp(FROM, tz=timezone.utc).strftime('%Y-%m-%d')
-    to_date   = datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')
-    # thử nhiều định dạng symbol: INDX cho indices, VN cho sàn HCM
-    candidates = [
-        f'{symbol}.INDX',
-        f'{symbol}.VN',
-        f'{symbol}.HO',    # HOSE (Ho Chi Minh Stock Exchange)
-    ]
-    for eod_sym in candidates:
-        url = (f"https://eodhd.com/api/eod/{eod_sym}"
-               f"?from={from_date}&to={to_date}&period=d"
-               f"&api_token={api_key}&fmt=json")
-        try:
-            d = fetch_json(url, timeout=20)
-        except Exception as e:
-            print(f"  EODHD {eod_sym}: {e}")
-            continue
-        if not isinstance(d, list) or len(d) < 10:
-            print(f"  EODHD {eod_sym}: ít dữ liệu ({len(d) if isinstance(d, list) else type(d).__name__})")
-            continue
-        t, o, h, l, c, v = [], [], [], [], [], []
-        for item in d:
-            date_str = str(item.get('date', ''))[:10]
-            if len(date_str) < 10:
-                continue
-            try:
-                ts    = _date_ts(date_str)
-                close = float(item.get('close') or item.get('adjusted_close') or 0)
-                if not close:
-                    continue
-                t.append(ts)
-                o.append(float(item.get('open')   or close))
-                h.append(float(item.get('high')   or close))
-                l.append(float(item.get('low')    or close))
-                c.append(close)
-                v.append(float(item.get('volume') or 0))
-            except Exception:
-                continue
-        if len(t) >= 10:
-            print(f"  EODHD {eod_sym}: OK {len(t)} bars")
-            return {'t': t, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v}
-    return None
-
-def try_synthetic_vn30(symbol, loai):
-    """VN30 tổng hợp — tính từ 30 cổ phiếu thành phần đã có trong data/.
-    Dùng khi mọi nguồn API đều thất bại. Kết quả là equal-weight return index."""
-    if symbol != 'VN30' or loai != 'index':
-        return None
-    vn30_stocks = [s for s, t in SYMBOLS if t == 'stock']
-    stock_data = {}
-    for s in vn30_stocks:
-        path = f'data/{s}.json'
-        try:
-            with open(path) as f:
-                d = json.load(f)
-            if isinstance(d.get('t'), list) and len(d['t']) >= 50:
-                stock_data[s] = d
-        except Exception:
-            continue
-    if len(stock_data) < 10:
-        print(f"  SynVN30: chỉ có {len(stock_data)} stock files, cần ≥10")
-        return None
-    all_ts = sorted(set(ts for d in stock_data.values() for ts in d['t']))
-    # tạo lookup cho cả o, h, l, c
-    lo_c = {s: dict(zip(d['t'], d['c'])) for s, d in stock_data.items()}
-    lo_o = {s: dict(zip(d['t'], d['o'])) for s, d in stock_data.items()}
-    lo_h = {s: dict(zip(d['t'], d['h'])) for s, d in stock_data.items()}
-    lo_l = {s: dict(zip(d['t'], d['l'])) for s, d in stock_data.items()}
-    t_out, o_out, h_out, l_out, c_out = [], [], [], [], []
-    idx = 1200.0
-    prev_c = {}
-    for ts in all_ts:
-        closes = {s: lo_c[s][ts] for s in stock_data if ts in lo_c[s]}
-        if len(closes) < 10:
-            continue
-        c_val = o_val = h_val = l_val = round(idx, 2)
-        if prev_c:
-            common = [s for s in closes if s in prev_c and prev_c[s] > 0]
-            if common:
-                rets_c = [(closes[s]                  / prev_c[s] - 1) for s in common]
-                rets_o = [(lo_o[s].get(ts, closes[s]) / prev_c[s] - 1) for s in common]
-                rets_h = [(lo_h[s].get(ts, closes[s]) / prev_c[s] - 1) for s in common]
-                rets_l = [(lo_l[s].get(ts, closes[s]) / prev_c[s] - 1) for s in common]
-                avg_c = sum(rets_c) / len(rets_c)
-                avg_o = sum(rets_o) / len(rets_o)
-                c_val = round(idx * (1 + avg_c), 2)
-                o_val = round(idx * (1 + avg_o), 2)
-                h_val = round(max(idx * (1 + max(rets_h)), c_val, o_val), 2)
-                l_val = round(min(idx * (1 + min(rets_l)), c_val, o_val), 2)
-                idx = c_val
-        prev_c = closes
-        t_out.append(ts)
-        o_out.append(o_val); h_out.append(h_val)
-        l_out.append(l_val); c_out.append(c_val)
-    if len(t_out) < 10:
-        return None
-    # Hiệu chỉnh theo VNINDEX thực (EODHD) × hệ số VN30/VNINDEX = 1.079
-    # Hệ số ổn định lịch sử 1.05-1.10; cập nhật mỗi lần chạy tự động
-    VN30_VNI_RATIO = 1.079
-    try:
-        with open('data/VNINDEX.json') as f:
-            vni = json.load(f)
-        vni_last_c = vni['c'][-1]
-        vn30_est   = vni_last_c * VN30_VNI_RATIO
-        scale      = vn30_est / c_out[-1]
-        o_out = [round(x * scale, 2) for x in o_out]
-        h_out = [round(x * scale, 2) for x in h_out]
-        l_out = [round(x * scale, 2) for x in l_out]
-        c_out = [round(x * scale, 2) for x in c_out]
-        print(f"  SynVN30: hiệu chỉnh ×{scale:.4f} → VN30≈{c_out[-1]:.2f} (VNINDEX {vni_last_c:.2f}×{VN30_VNI_RATIO})")
-    except Exception as e:
-        print(f"  SynVN30: bỏ qua hiệu chỉnh VNINDEX: {e}")
-    print(f"  SynVN30: tổng hợp từ {len(stock_data)} cổ phiếu → {len(t_out)} bars")
-    return {'t': t_out, 'o': o_out, 'h': h_out, 'l': l_out, 'c': c_out, 'v': [0]*len(t_out)}
-
-
 SOURCES = [
     ('TCBS',       try_tcbs),
     ('Yahoo',      try_yahoo),
-    ('EODHD',      try_eodhd),
     ('CafeF',      try_cafef),
     ('DNSE',       try_dnse),
     ('SSI',        try_ssi_iboard),
@@ -560,7 +434,6 @@ SOURCES = [
     ('Finfo',      try_finfo),
     ('Stooq',      try_stooq),
     ('Entrade',    try_entrade),
-    ('SynVN30',    try_synthetic_vn30),  # phương án cuối cho VN30
 ]
 
 ok_count = 0
