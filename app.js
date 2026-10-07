@@ -60,7 +60,13 @@ const KHUNG_GIO = [
 const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
 const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
 
-const REST_URLS = ['https://data-api.binance.vision', 'https://api.binance.com'];
+const REST_URLS = [
+  'https://data-api.binance.vision',
+  'https://api.binance.com',
+  'https://api1.binance.com',
+  'https://api2.binance.com',
+  'https://api3.binance.com',
+];
 const WS_BASE = 'wss://data-stream.binance.vision';
 const LECH_GIO = 7 * 60 * 60; // Binance trả giờ UTC → cộng 7 tiếng cho giờ Việt Nam
 
@@ -301,7 +307,40 @@ async function goiBinance(thamSo) {
       console.warn('Lỗi tải từ', base, e);
     }
   }
+  // Fallback: OKX (hỗ trợ 2D/3D/1W/1M, không bị block)
+  const p = Object.fromEntries(new URLSearchParams(thamSo));
+  try {
+    const data = await goiOKX(p.symbol, p.interval);
+    if (data?.length) return data;
+  } catch (e) {
+    console.warn('OKX fallback lỗi:', e);
+  }
   throw new Error('Không tải được dữ liệu từ Binance');
+}
+
+// Chuyển symbol Binance → OKX: BTCUSDT → BTC-USDT
+function binanceSymToOKX(ma) {
+  return ma.replace(/(USDT|BUSD|BTC|ETH)$/, '-$1');
+}
+// Chuyển interval Binance → OKX: 1h→1H, 2d→2D, v.v.
+function binanceIntervalToOKX(kh) {
+  const MAP = {'1h':'1H','2h':'2H','4h':'4H','8h':'8H','12h':'12H',
+               '1d':'1D','2d':'2D','3d':'3D','1w':'1W'};
+  return MAP[kh] || kh;
+}
+async function goiOKX(ma, khung) {
+  const instId = binanceSymToOKX(ma);
+  const bar    = binanceIntervalToOKX(khung);
+  const url    = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=300`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`OKX HTTP ${res.status}`);
+  const d = await res.json();
+  if (d.code !== '0' || !d.data?.length) throw new Error(`OKX: ${d.msg}`);
+  // OKX trả mới nhất trước → reverse
+  return d.data.slice().reverse().map(item => ({
+    time: Math.floor(+item[0] / 1000) + LECH_GIO,
+    open: +item[1], high: +item[2], low: +item[3], close: +item[4], volume: +item[5],
+  }));
 }
 
 // Nến 1H từ 01/01 năm nay tới ngay trước nến đầu tiên của biểu đồ.
