@@ -138,13 +138,13 @@ const chart = LC.createChart(document.getElementById('chart'), {
   layout: { background: { color: MAU.nen }, textColor: '#b2b5be', panes: { separatorColor: '#d1d4dc' } },
   grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // không kẻ lưới, giống mẫu
   crosshair: { mode: LC.CrosshairMode.Normal },
-  leftPriceScale: { visible: true, borderVisible: false },   // thang giá bên TRÁI như mẫu
-  rightPriceScale: { visible: false },
+  leftPriceScale: { visible: false },
+  rightPriceScale: { visible: true, borderVisible: false },
   timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 8 },
 });
 
 const nenSeries = chart.addSeries(LC.CandlestickSeries, {
-  priceScaleId: 'left',
+  priceScaleId: 'right',
   upColor: MAU.tang, downColor: MAU.giam, borderVisible: false,
   wickUpColor: MAU.tang, wickDownColor: MAU.giam,
   lastValueVisible: false,
@@ -155,7 +155,7 @@ let S = [];
 
 function themDuong(paneIndex, mau, lay, tuyChon = {}) {
   const series = chart.addSeries(LC.LineSeries, Object.assign({
-    priceScaleId: 'left', color: mau, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+    priceScaleId: 'right', color: mau, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
     crosshairMarkerVisible: false,
   }, tuyChon), paneIndex);
   S.push({ series, lay });
@@ -224,7 +224,7 @@ function taoSeries() {
     // Nền xanh khi RSI > 80, đỏ khi RSI < 20: cột rất cao nằm phía sau,
     // không tham gia co giãn thang (autoscaleInfoProvider trả null)
     const nen = chart.addSeries(LC.HistogramSeries, {
-      priceScaleId: 'left', priceLineVisible: false, lastValueVisible: false,
+      priceScaleId: 'right', priceLineVisible: false, lastValueVisible: false,
       base: -1000, autoscaleInfoProvider: () => null,
     }, P);
     S.push({
@@ -702,11 +702,8 @@ function capNhatLegend(i) {
   html += '</div>';
   const lg = document.getElementById('legend');
   lg.innerHTML = html;
-  // Thang giá nằm bên trái → đẩy chú thích sang phải cho khỏi đè
-  let trai = 60;
-  try { trai = chart.priceScale('left').width() + 8; } catch (e) {}
-  lg.style.left = trai + 'px';
-  document.getElementById('legendRsi').style.left = trai + 'px';
+  lg.style.left = '8px';
+  document.getElementById('legendRsi').style.left = '8px';
 
   // Legend của khung RSI: đặt ngay đầu khung dưới
   const lr = document.getElementById('legendRsi');
@@ -1000,7 +997,7 @@ function capNhatNhanGia() {
   }
 
   let scaleW = 60;
-  try { scaleW = chart.priceScale('left').width(); } catch (e) {}
+  try { scaleW = chart.priceScale('right').width(); } catch (e) {}
 
   const giaEl = el.querySelector('.ng-gia');
   const demEl = el.querySelector('.ng-dem');
@@ -1028,6 +1025,8 @@ function capNhatNhanGia() {
   }
 
   el.style.width = scaleW + 'px';
+  el.style.right = '0';
+  el.style.left = 'auto';
   // Căn tâm dòng giá (ng-gia cao ~18px) vào yCoord
   el.style.top = Math.round(yCoord - 9) + 'px';
   el.style.display = '';
@@ -1112,8 +1111,7 @@ let eaKetQua = {};        // { 'BTCUSDT': { trades, status, thongKe } }
 let eaTimerRefresh = null;
 let eaHistMarkers = null;  // markers lịch sử (LC.createSeriesMarkers)
 let eaHistPrim = null;     // primitive vẽ đường nối entry-exit
-let eaEntryLines = [];     // [{priceLine, trade}] cho lệnh đang mở
-let eaSLLines = [];        // [{priceLine, trade}] SL cho lệnh đang mở
+let eaOpenPrim = null;     // EaOpenLinesPrimitive cho lệnh đang mở
 let eaLoading = false;
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai); }
@@ -1178,14 +1176,119 @@ class EaHistPrimitive {
   }
 }
 
+// Primitive vẽ đường entry/SL dạng đoạn thẳng (không kéo dài toàn bộ)
+class EaOpenLinesPrimitive {
+  constructor() {
+    this._lines = [];       // [{price, label, color, snapTime}]
+    this._entryData = [];   // [{price, label, color, snapTime, trade}] để cập nhật PnL
+    this._series = null;
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+  attached(p) { this._series = p.series; this._chart = p.chart; this._requestUpdate = p.requestUpdate; }
+  detached() { this._series = null; this._chart = null; this._requestUpdate = null; }
+  updateAllViews() {}
+
+  setData(entryItems, slItems) {
+    this._entryData = entryItems;
+    this._lines = [
+      ...entryItems.map(e => ({ price: e.price, label: e.label, color: e.color, snapTime: e.snapTime })),
+      ...slItems.map(s => ({ price: s.price, label: s.label, color: s.color, snapTime: null })),
+    ];
+    if (this._requestUpdate) this._requestUpdate();
+  }
+
+  updatePnl(cur, showPnl) {
+    for (let i = 0; i < this._entryData.length; i++) {
+      const e = this._entryData[i];
+      const base = `buy (${e.trade.leg})`;
+      if (showPnl && cur) {
+        const pct = (cur - e.trade.entry) / e.trade.entry * 100;
+        e.label = `${base} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        e.color = pct >= 0 ? '#26a69a' : '#ef5350';
+      } else {
+        e.label = base;
+        e.color = '#2962ff';
+      }
+      this._lines[i].label = e.label;
+      this._lines[i].color = e.color;
+    }
+    if (this._requestUpdate) this._requestUpdate();
+  }
+
+  priceAxisViews() {
+    const self = this;
+    return this._lines.map(line => ({
+      coordinate() {
+        if (!self._series) return -1;
+        return self._series.priceToCoordinate(line.price) ?? -1;
+      },
+      text() { return dinhDangGia(line.price); },
+      textColor() { return '#ffffff'; },
+      backColor() { return line.color; },
+      tickVisible() { return false; },
+    }));
+  }
+
+  paneViews() {
+    const self = this;
+    return [{
+      renderer() {
+        return {
+          draw(target) {
+            if (!self._series || !self._chart || !self._lines.length) return;
+            target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
+              const ts = self._chart.timeScale();
+              const lastT = duLieuNen.length ? duLieuNen[duLieuNen.length - 1].time : null;
+              ctx.save();
+              ctx.lineWidth = hpr;
+              for (const line of self._lines) {
+                const y = self._series.priceToCoordinate(line.price);
+                if (y == null) continue;
+                const startT = line.snapTime ?? lastT;
+                let x1 = 0;
+                if (startT != null) {
+                  const xc = ts.timeToCoordinate(startT);
+                  x1 = xc != null ? Math.max(0, xc) * hpr : 0;
+                }
+                const yBitmap = y * vpr;
+                const x2Bitmap = bitmapSize.width;
+                ctx.setLineDash([4 * hpr, 3 * hpr]);
+                ctx.strokeStyle = line.color;
+                ctx.beginPath();
+                ctx.moveTo(x1, yBitmap);
+                ctx.lineTo(x2Bitmap, yBitmap);
+                ctx.stroke();
+                if (line.label) {
+                  ctx.setLineDash([]);
+                  const fs = 11 * vpr;
+                  ctx.font = `${fs}px sans-serif`;
+                  const tw = ctx.measureText(line.label).width;
+                  const px = 4 * hpr, py = 2 * vpr;
+                  const bw = tw + px * 2, bh = fs + py * 2;
+                  const bx = x2Bitmap - bw - 4 * hpr;
+                  const by = yBitmap - bh / 2;
+                  ctx.fillStyle = line.color + 'cc';
+                  ctx.fillRect(bx, by, bw, bh);
+                  ctx.fillStyle = '#ffffff';
+                  ctx.textBaseline = 'middle';
+                  ctx.fillText(line.label, bx + px, yBitmap);
+                }
+              }
+              ctx.restore();
+            });
+          },
+        };
+      },
+    }];
+  }
+}
+
 // Xoá toàn bộ drawing EA
 function eaXoaVe() {
   if (eaHistMarkers) { try { eaHistMarkers.detach(); } catch (e) {} eaHistMarkers = null; }
   if (eaHistPrim) { try { nenSeries.detachPrimitive(eaHistPrim); } catch (e) {} eaHistPrim = null; }
-  for (const { priceLine } of eaEntryLines) { try { nenSeries.removePriceLine(priceLine); } catch (e) {} }
-  eaEntryLines = [];
-  for (const { priceLine } of eaSLLines) { try { nenSeries.removePriceLine(priceLine); } catch (e) {} }
-  eaSLLines = [];
+  if (eaOpenPrim) { try { nenSeries.detachPrimitive(eaOpenPrim); } catch (e) {} eaOpenPrim = null; }
 }
 
 // Lịch sử giao dịch: mũi tên vào/ra + đường chấm nối
@@ -1230,56 +1333,38 @@ function eaVeHist(kq) {
 
 // Cập nhật % lãi/lỗ real-time trên đường giá vào
 function eaCapNhatPnl() {
-  if (!eaEntryLines.length) return;
+  if (!eaOpenPrim) return;
   const cur = duLieuNen.length ? duLieuNen[duLieuNen.length - 1].close : null;
-  for (const { priceLine, trade } of eaEntryLines) {
-    try {
-      const base = `buy (${trade.leg})`;
-      if (caiDatEA.pnl && cur) {
-        const pct = (cur - trade.entry) / trade.entry * 100;
-        priceLine.applyOptions({
-          title: `${base} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`,
-          color: pct >= 0 ? '#26a69a' : '#ef5350',
-        });
-      } else {
-        priceLine.applyOptions({ title: base, color: '#2962ff' });
-      }
-    } catch (e) {}
-  }
+  eaOpenPrim.updatePnl(cur, caiDatEA.pnl);
 }
 
-// Đường ngang: lệnh đang mở (entry) + SL
+// Đường đoạn: lệnh đang mở (entry) + SL — dùng primitive thay createPriceLine
 function eaVeOpenLines(kq) {
-  for (const { priceLine } of eaEntryLines) { try { nenSeries.removePriceLine(priceLine); } catch (e) {} }
-  eaEntryLines = [];
-  for (const { priceLine } of eaSLLines) { try { nenSeries.removePriceLine(priceLine); } catch (e) {} }
-  eaSLLines = [];
+  if (eaOpenPrim) { try { nenSeries.detachPrimitive(eaOpenPrim); } catch (e) {} eaOpenPrim = null; }
   if (!kq?.trades?.length) return;
   const open = kq.trades.filter(t => t.exitT === null && caiDatEA[t.leg]);
+  if (!open.length) return;
+  const entryItems = [];
+  const slItems = [];
   if (caiDatEA.entry) {
     for (const tr of open) {
-      try {
-        const pl = nenSeries.createPriceLine({
-          price: tr.entry, color: '#2962ff', lineWidth: 1,
-          lineStyle: LC.LineStyle.Dashed, axisLabelVisible: true, title: `buy (${tr.leg})`,
-        });
-        eaEntryLines.push({ priceLine: pl, trade: tr });
-      } catch (e) {}
+      const snapTime = eaSnapToNen(tr.entryT);
+      entryItems.push({ price: tr.entry, label: `buy (${tr.leg})`, color: '#2962ff', snapTime, trade: tr });
     }
   }
   if (caiDatEA.sltp) {
     for (const tr of open) {
       const lastSL = tr.slHist?.length ? tr.slHist[tr.slHist.length - 1].sl : null;
       if (lastSL == null) continue;
-      try {
-        const pl = nenSeries.createPriceLine({
-          price: lastSL, color: '#ef5350', lineWidth: 1,
-          lineStyle: LC.LineStyle.Dashed, axisLabelVisible: true, title: `SL (${tr.leg})`,
-        });
-        eaSLLines.push({ priceLine: pl, trade: tr });
-      } catch (e) {}
+      slItems.push({ price: lastSL, label: `SL (${tr.leg})`, color: '#ef5350' });
     }
   }
+  if (!entryItems.length && !slItems.length) return;
+  try {
+    eaOpenPrim = new EaOpenLinesPrimitive();
+    nenSeries.attachPrimitive(eaOpenPrim);
+    eaOpenPrim.setData(entryItems, slItems);
+  } catch (e) { console.warn('EA open lines primitive:', e); }
   eaCapNhatPnl();
 }
 
@@ -1287,9 +1372,7 @@ function eaVeStatus(kq) {
   const el = document.getElementById('eaStatus');
   if (!el) return;
   if (!kq || !caiDatEA.bts) { el.style.display = 'none'; return; }
-  let trai = 60;
-  try { trai = chart.priceScale('left').width() + 8; } catch (e) {}
-  el.style.left = trai + 'px';
+  el.style.left = '8px';
   const bias = kq.status?.bias || {};
   const legs = kq.status?.legs || {};
   const legRow = (l) => {
