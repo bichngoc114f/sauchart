@@ -147,6 +147,7 @@ const nenSeries = chart.addSeries(LC.CandlestickSeries, {
   priceScaleId: 'left',
   upColor: MAU.tang, downColor: MAU.giam, borderVisible: false,
   wickUpColor: MAU.tang, wickDownColor: MAU.giam,
+  lastValueVisible: false,
 });
 
 // S = các chuỗi chỉ báo đang vẽ. Mỗi phần tử: { series, lay(i) → điểm thứ i }
@@ -292,6 +293,7 @@ function veNenCuoi() {
   const i = duLieuNen.length - 1;
   nenSeries.update(duLieuNen[i]);
   S.forEach((x) => x.series.update(x.lay(i)));
+  capNhatNhanGia();
 }
 
 // ---------- 5. LẤY DỮ LIỆU ----------
@@ -736,7 +738,12 @@ chart.subscribeCrosshairMove((param) => {
     if (j >= 0) i = j;
   }
   capNhatLegend(i);
+  capNhatNhanGia();
 });
+
+// Kéo/zoom biểu đồ hoặc đổi kích thước màn hình → cập nhật vị trí nhãn giá
+chart.timeScale().subscribeVisibleLogicalRangeChange(() => capNhatNhanGia());
+window.addEventListener('resize', () => capNhatNhanGia());
 
 // Tìm vị trí cây nến theo thời gian (tìm nhị phân cho nhanh)
 function timNen(t) {
@@ -781,8 +788,9 @@ async function napBieuDo() {
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
-    if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai); dungDemNguoc(); }
-    else { datTrangThai('KBS · dữ liệu VN', 'ok'); batDauDemNguoc(); }
+    if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai); }
+    else { datTrangThai('KBS · dữ liệu VN', 'ok'); }
+    batDauNhanGia();
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
   }
@@ -881,61 +889,153 @@ function batDauPollingVN() {
   timerGiaVN = setInterval(capNhatGiaVN, 60000);
 }
 
-// ---------- 9b. ĐỒNG HỒ ĐẾM NGƯỢC PHIÊN GIAO DỊCH ----------
+// ---------- 9b. NHÃN GIÁ + ĐẾM NGƯỢC NẾN ----------
 let timerDemNguoc = null;
+let _daDatLaiNen = false;
 
-function tinhDemNguoc() {
-  const MO_CUA   = 9 * 3600;
-  const DONG_SANG = 11 * 3600 + 30 * 60;
-  const MO_CHIEU  = 13 * 3600;
-  const DONG_CHIEU = 14 * 3600 + 30 * 60;
-  const ATC        = 14 * 3600 + 45 * 60;
-
-  // Thời gian hiện tại theo múi giờ VN (UTC+7)
-  const now = new Date(Date.now() + 7 * 3600000);
-  const t = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
-  const day = now.getUTCDay(); // 0=CN, 6=T7
-
-  if (day === 6) return { label: 'T2 mở cửa', secs: 2 * 86400 - t + MO_CUA };
-  if (day === 0) return { label: 'T2 mở cửa', secs: 1 * 86400 - t + MO_CUA };
-  if (t < MO_CUA)     return { label: 'Mở cửa',    secs: MO_CUA - t };
-  if (t < DONG_SANG)  return { label: 'Đóng sáng', secs: DONG_SANG - t };
-  if (t < MO_CHIEU)   return { label: 'Mở chiều',  secs: MO_CHIEU - t };
-  if (t < DONG_CHIEU) return { label: 'Đóng chiều', secs: DONG_CHIEU - t };
-  if (t < ATC)        return { label: 'ATC',        secs: ATC - t };
-  const d = day === 5 ? 3 : 1;
-  return { label: 'Ngày mai', secs: d * 86400 - t + MO_CUA };
-}
-
-function _fmtSecs(s) {
+function _fmtCountdown(s) {
   s = Math.max(0, Math.round(s));
+  if (s >= 86400) {
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sc = s % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
+  if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
   return `${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;
 }
 
-function batDauDemNguoc() {
-  const el = document.getElementById('demNguoc');
-  if (!el) return;
-  el.style.display = '';
-  el.innerHTML = '<span class="dn-label"></span><span class="dn-time"></span>';
-  const lbl = el.querySelector('.dn-label');
-  const tim = el.querySelector('.dn-time');
-  function tick() {
-    const r = tinhDemNguoc();
-    lbl.textContent = r.label;
-    tim.textContent = _fmtSecs(r.secs);
-  }
-  tick();
-  if (timerDemNguoc) clearInterval(timerDemNguoc);
-  timerDemNguoc = setInterval(tick, 1000);
+function _lastTradingDayOfMonth(year, month0) {
+  // Ngày giao dịch cuối tháng; trả về UTC seconds (00:00 UTC ngày đó)
+  let d = new Date(Date.UTC(year, month0 + 1, 0)); // ngày cuối tháng
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6)
+    d = new Date(d.getTime() - 86400000);
+  return d.getTime() / 1000;
 }
 
-function dungDemNguoc() {
+// Tính thời điểm đóng cửa nến hiện tại; trả về { secs, nghỉ }
+// secs = số giây thực UTC còn lại đến khi nến đóng; nghỉ = true nếu ngoài giờ VN
+function tinhKetThucNen() {
+  if (!duLieuNen.length) return null;
+  const last = duLieuNen[duLieuNen.length - 1];
+  const nowUTC = Date.now() / 1000;
+  const isVN = !!DANH_SACH_VN.find((x) => x.ma === maHienTai);
+
+  if (isVN) {
+    // Kiểm tra có đang trong phiên giao dịch không (theo giờ VN = UTC+7)
+    const vnNow = new Date((nowUTC + 7 * 3600) * 1000);
+    const vnSec = vnNow.getUTCHours() * 3600 + vnNow.getUTCMinutes() * 60 + vnNow.getUTCSeconds();
+    const vnDay = vnNow.getUTCDay();
+    const trongPhien = vnDay >= 1 && vnDay <= 5 &&
+      ((vnSec >= 9 * 3600 && vnSec < 11 * 3600 + 30 * 60) ||
+       (vnSec >= 13 * 3600 && vnSec < 14 * 3600 + 45 * 60));
+    if (!trongPhien) return { nghỉ: true };
+
+    // last.time được lưu dạng "giờ VN as UTC" (LECH_GIO=0 với VN)
+    // để lấy ngày/tháng/năm của nến, đọc từ last.time như UTC
+    const bd = new Date(last.time * 1000);
+    const y = bd.getUTCFullYear(), mo = bd.getUTCMonth(), d = bd.getUTCDate();
+    const barH = bd.getUTCHours(); // 9 hoặc 13 cho H4; 0 cho D/3D/W/M
+
+    // Tính thời điểm đóng cửa nến dưới dạng real UTC seconds
+    // 14:45 VN = 07:45 UTC; 11:30 VN = 04:30 UTC
+    let closeRealUTC;
+    if (khungHienTai === 'h4') {
+      closeRealUTC = barH === 9
+        ? Date.UTC(y, mo, d, 4, 30) / 1000   // sáng đóng 11:30 VN
+        : Date.UTC(y, mo, d, 7, 45) / 1000;  // chiều đóng 14:45 VN
+    } else if (khungHienTai === '1d') {
+      closeRealUTC = Date.UTC(y, mo, d, 7, 45) / 1000;
+    } else if (khungHienTai === '3d') {
+      // Nến 3D mở ngày đầu, đóng ngày thứ 3 lúc 14:45 VN
+      closeRealUTC = Date.UTC(y, mo, d + 2, 7, 45) / 1000;
+    } else if (khungHienTai === '1w') {
+      // Nến W mở thứ Hai, đóng thứ Sáu lúc 14:45 VN
+      closeRealUTC = Date.UTC(y, mo, d + 4, 7, 45) / 1000;
+    } else { // '1M'
+      const ltd = _lastTradingDayOfMonth(y, mo);
+      const ld = new Date(ltd * 1000);
+      closeRealUTC = Date.UTC(ld.getUTCFullYear(), ld.getUTCMonth(), ld.getUTCDate(), 7, 45) / 1000;
+    }
+    return { secs: closeRealUTC - nowUTC };
+
+  } else {
+    // Crypto: time = openUTC + LECH_GIO (7h)
+    const openUTC = last.time - 7 * 3600;
+    const durMap = {
+      '15m': 900, '30m': 1800,
+      '1h': 3600, '2h': 7200, '4h': 14400, '8h': 28800, '12h': 43200,
+      '1d': 86400, '2d': 172800, '3d': 259200, '1w': 604800,
+    };
+    let closeUTC;
+    if (khungHienTai in durMap) {
+      closeUTC = openUTC + durMap[khungHienTai];
+    } else { // '1M'
+      const od = new Date(openUTC * 1000);
+      closeUTC = Date.UTC(od.getUTCFullYear(), od.getUTCMonth() + 1, 1) / 1000;
+    }
+    return { secs: closeUTC - nowUTC };
+  }
+}
+
+function capNhatNhanGia() {
+  const el = document.getElementById('nhanGia');
+  if (!el || !duLieuNen.length) { if (el) el.style.display = 'none'; return; }
+
+  const last = duLieuNen[duLieuNen.length - 1];
+  const yCoord = nenSeries.priceToCoordinate(last.close);
+  const chartH = document.getElementById('chart').clientHeight;
+  if (yCoord == null || yCoord < 0 || yCoord > chartH) {
+    el.style.display = 'none'; return;
+  }
+
+  let scaleW = 60;
+  try { scaleW = chart.priceScale('left').width(); } catch (e) {}
+
+  const giaEl = el.querySelector('.ng-gia');
+  const demEl = el.querySelector('.ng-dem');
+
+  // Màu: tăng → nền trắng chữ tối, giảm → nền xám chữ tối
+  const tang = last.close >= last.open;
+  giaEl.style.background = tang ? MAU.tang : MAU.giam;
+  giaEl.style.color = '#1d1f28';
+  giaEl.textContent = dinhDangGia(last.close);
+
+  // Đếm ngược
+  const kt = tinhKetThucNen();
+  if (!kt) {
+    demEl.textContent = '';
+  } else if (kt.nghỉ) {
+    demEl.textContent = 'Nghỉ';
+  } else {
+    const s = kt.secs;
+    demEl.textContent = s <= 0 ? '00:00' : _fmtCountdown(s);
+    if (s <= 0 && !_daDatLaiNen) {
+      _daDatLaiNen = true;
+      const isVN = !!DANH_SACH_VN.find((x) => x.ma === maHienTai);
+      setTimeout(() => { _daDatLaiNen = false; napBieuDo(); }, isVN ? 60000 : 1500);
+    }
+  }
+
+  el.style.width = scaleW + 'px';
+  // Căn tâm dòng giá (ng-gia cao ~18px) vào yCoord
+  el.style.top = Math.round(yCoord - 9) + 'px';
+  el.style.display = '';
+}
+
+function batDauNhanGia() {
+  _daDatLaiNen = false;
+  if (timerDemNguoc) clearInterval(timerDemNguoc);
+  timerDemNguoc = setInterval(capNhatNhanGia, 1000);
+  capNhatNhanGia();
+}
+
+function dungNhanGia() {
   if (timerDemNguoc) { clearInterval(timerDemNguoc); timerDemNguoc = null; }
-  const el = document.getElementById('demNguoc');
+  const el = document.getElementById('nhanGia');
   if (el) el.style.display = 'none';
 }
 
