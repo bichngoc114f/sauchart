@@ -76,17 +76,28 @@
           <i style="background:#f5c518;width:14px;height:14px;border-radius:3px"></i>
           <span>L5</span>
         </label>
-        <div class="panel-nhom">Luồng</div>
-        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="D">
-          <i style="background:#f5c518"></i><span>D</span></label>
-        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H4">
-          <i style="background:#00bcd4"></i><span>H4</span></label>
-        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H8">
-          <i style="background:#ab47bc"></i><span>H8</span></label>
-        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H12">
-          <i style="background:#ff7043"></i><span>H12</span></label>
-        <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="Trap">
-          <i style="background:#66bb6a"></i><span>Trap</span></label>
+        <div id="eaL5Luong">
+          <div class="panel-nhom">Luồng L5</div>
+          <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="D">
+            <i style="background:#f5c518"></i><span>D</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H4">
+            <i style="background:#00bcd4"></i><span>H4</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H8">
+            <i style="background:#ab47bc"></i><span>H8</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="H12">
+            <i style="background:#ff7043"></i><span>H12</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-luong" data-leg="Trap">
+            <i style="background:#66bb6a"></i><span>Trap</span></label>
+        </div>
+        <div id="eaS1Luong" style="display:none">
+          <div class="panel-nhom">Luồng S1</div>
+          <label class="panel-dong"><input type="checkbox" class="ea-s1-luong" data-leg="W">
+            <i style="background:#f5c518;width:14px;height:14px;border-radius:3px"></i><span>W</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-s1-luong" data-leg="D">
+            <i style="background:#00bcd4;width:14px;height:14px;border-radius:3px"></i><span>D</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-s1-luong" data-leg="2D">
+            <i style="background:#ab47bc;width:14px;height:14px;border-radius:3px"></i><span>2D</span></label>
+        </div>
         <div class="panel-nhom">Hiển thị</div>
         <label class="panel-dong"><input type="checkbox" id="eaShowEntry"><span>Lệnh có trạng thái</span></label>
         <label class="panel-dong"><input type="checkbox" id="eaShowSLTP"><span>Mức SL/TP</span></label>
@@ -112,6 +123,8 @@
 
   <script src="ea-l5-engine.js"></script>
   <script src="ea-l5-data.js"></script>
+  <script src="ea-s1-engine.js"></script>
+  <script src="ea-s1-data.js"></script>
   <script src="indicators.js"></script>
   <script src="app.js"></script>
 </body>
