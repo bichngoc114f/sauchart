@@ -1,0 +1,39 @@
+# Thông báo EA L5 (BTC, ETH, vàng) qua Telegram — chạy mỗi giờ.
+name: L5 thong bao Telegram
+
+on:
+  schedule:
+    - cron: '7 * * * *'      # phút thứ 7 mỗi giờ
+  workflow_dispatch:          # nút "Run workflow" để chạy thử bằng tay
+
+concurrency:
+  group: l5-thong-bao
+
+jobs:
+  thong-bao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Lấy trạng thái lần chạy trước
+        uses: actions/cache/restore@v4
+        with:
+          path: .l5-state
+          key: l5-state-${{ github.run_id }}
+          restore-keys: l5-state-
+      - name: Chạy L5 và gửi Telegram
+        run: node l5-thong-bao.cjs
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          THU: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Lưu trạng thái cho lần sau
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .l5-state
+          key: l5-state-${{ github.run_id }}
