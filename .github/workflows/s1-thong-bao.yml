@@ -1,0 +1,23 @@
+# Gửi tổng kết EA S1 qua Telegram sau mỗi phiên giao dịch.
+name: S1 thong bao Telegram
+
+on:
+  schedule:
+    - cron: '35 8 * * 1-5'   # 15:35 giờ VN, Thứ Hai → Thứ Sáu
+  workflow_dispatch:          # nút "Run workflow" để chạy thử bằng tay
+
+jobs:
+  thong-bao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Chạy S1 và gửi Telegram
+        run: node s1-thong-bao.cjs
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          THU: ${{ github.event_name == 'workflow_dispatch' }}
