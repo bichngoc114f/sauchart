@@ -63,7 +63,10 @@ function tomTat(ds) {
     const b = x.kq.status.bias;
     out.push('', `<b>${x.ten}</b> giá ${x.gia ? gia(x.gia) : '–'} · Bias W: ${b.valid ? 'hợp lệ (' + b.method + ')' : 'KHÔNG hợp lệ'}`);
     const mo = x.kq.trades.filter((t) => t.exitT === null);
-    if (!mo.length) out.push('  Không giữ lệnh nào.');
+    // v5.10: lệnh chờ Buy Limit đang treo
+    const cho = Object.entries(x.kq.status.legs || {}).filter(([, v]) => v && v.cho);
+    if (!mo.length && !cho.length) out.push('  Không giữ lệnh nào.');
+    for (const [leg, v] of cho) out.push(`  ⏳ ${leg} lệnh chờ Buy Limit @${gia(v.cho.price)} · SL ${gia(v.cho.sl)}`);
     for (const t of mo) {
       const sl = t.slHist.length ? t.slHist[t.slHist.length - 1].sl : null;
       const lai = x.gia ? ' · ' + pct((x.gia / t.entry - 1) * 100) : '';

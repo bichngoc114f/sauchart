@@ -7,6 +7,8 @@
 //    { d, h12, h8, h4, h1, m15ByEntry }
 //    mỗi mảng nến: [{t, o, h, l, c}] — CHỈ nến đã đóng, sắp xếp tăng dần.
 //    m15ByEntry: nến M15 theo từng lệnh D (chỉ cần quanh các lệnh D).
+//  v5.10 (22/10/2026): theo EA-trial-L5.mq5 v5.10 + quy-trinh-vao-ra-lenh-L5-v2-2026-10-22.md:
+//    rào SL tối đa 5% (lệnh chờ Buy Limit P = SL/0.95) cho D/H4/H8/H12; H8, H12 bỏ rào RSI(H1)<20; H4 giữ.
 //  Đầu ra: { trades, status, dTrades } — mỗi lệnh: {leg, method, entryT, entry, exitT, exit, reason, slHist:[{t,sl}], pnlPct}
 //  Đối chiếu BTC 2020→05/10/2026 (dữ liệu Binance): D 29 lệnh +642%, H4 76 +637%, H8 49 +641%, H12 38 +645%, Trap 60 +602%
 //  (backtest Python trên Exness: D 27 +643%, H4 74 +667%, H8 52 +659%, H12 41 +665%, Trap 53 +611%).
@@ -30,6 +32,8 @@
     dSlBelow: 1.0, dSlAbove: 2.0, dSlOversold: 1.5, dOversoldLookback: 60, dOversoldThresh: 20, dInvalidTol: 0.5,
     // MAIN (H4/H8/H12)
     mainCond2Tol: 3.0, mainOversoldLookback: 10, mainOversoldThresh: 20, mainSlBuf: 1.0,
+    // v5.10 (22/10/2026): rào SL tối đa 5% (0 = tắt) cho D/H4/H8/H12; rào RSI(H1)<20 chỉ còn ở H4
+    maxSlPct: 5.0, raoH1: { H4: true, H8: false, H12: false },
     // Trap M15
     trapMinBelow: 10, trapDistMin: 5.0, trapRsiFloor: 25, trapCrossSpreadTol: 10.0, trapMaxTry: 6, trapSlBuf: 1.0,
   };
@@ -209,39 +213,50 @@
   }
 
   // ---------- 2. LỆNH D ----------
+  // v5.10: rào SL tối đa 5% — SL xa hơn 5% thì đặt lệnh chờ Buy Limit tại P = SL/0.95
   function chayD(d, h1, bias, tuNgay) {
     const cb = chiBao(d);
     const trades = [];
-    let pos = null; // {entryT, entry, sl, slHist:[{t,sl}]}
+    let pos = null;  // {entryT, entry, sl, slHist:[{t,sl}]}
+    let cho = null;  // lệnh chờ {P, sl, tu}
     const slPct = (i) => {
       for (let k = Math.max(0, i - P.dOversoldLookback + 1); k <= i; k++) if (cb.rsi[k] < P.dOversoldThresh) return P.dSlOversold;
       if (cb.rsi[i] < cb.L1[i] - P.dInvalidTol) return P.dSlBelow;
       return P.dSlAbove;
     };
+    const xa = (gia, sl) => P.maxSlPct > 0 && (gia - sl) / gia > P.maxSlPct / 100;
     let j = 0; // chỉ số H1
     for (let i = 0; i < d.length; i++) {
       const b = d[i];
       if (b.t < tuNgay) continue;
       if (Number.isNaN(cb.L1[i])) continue;
       const Tc = b.t + DAY;
+      const sl = cb.basis[i] * (1 - slPct(i) / 100);
       if (pos) {
-        const sl = cb.basis[i] * (1 - slPct(i) / 100);
         pos.sl = sl; pos.slHist.push({ t: Tc, sl });
-      } else if (bias.biasAt(b.t) && cb.rsi[i] >= cb.L4[i] + cb.buf[i] && b.c > cb.basis[i]) {
-        const sl = cb.basis[i] * (1 - slPct(i) / 100);
-        pos = { leg: 'D', entryT: Tc, entry: b.c, sl, slHist: [{ t: Tc, sl }], method: 'Full breakout D' };
-      }
-      // Kiểm tra SL theo low từng nến H1 trong ngày kế tiếp
-      if (pos) {
-        while (j < h1.length && h1[j].t < Tc) j++;
-        let k = j;
-        while (k < h1.length && h1[k].t < Tc + DAY) {
-          if (h1[k].l <= pos.sl) {
-            trades.push(dongLenh(pos, h1[k].t, pos.sl, 'SL'));
-            pos = null; break;
-          }
-          k++;
+      } else {
+        const dk = bias.biasAt(b.t) && cb.rsi[i] >= cb.L4[i] + cb.buf[i] && b.c > cb.basis[i];
+        if (cho && !dk) cho = null;                         // huỷ lệnh chờ
+        if (dk) {
+          if (!xa(b.c, sl)) {                               // SL gần → vào market tại giá đóng D
+            pos = { leg: 'D', entryT: Tc, entry: b.c, sl, slHist: [{ t: Tc, sl }], method: cho ? 'Full breakout D (lệnh chờ → market)' : 'Full breakout D' };
+            cho = null;
+          } else cho = { P: sl / (1 - P.maxSlPct / 100), sl, tu: cho ? cho.tu : Tc }; // đặt / dời lệnh chờ
         }
+      }
+      // Ngày kế tiếp, từng nến H1: khớp lệnh chờ (low ≤ P) rồi kiểm tra SL theo low
+      while (j < h1.length && h1[j].t < Tc) j++;
+      let k = j;
+      while ((pos || cho) && k < h1.length && h1[k].t < Tc + DAY) {
+        if (cho && h1[k].l <= cho.P) {
+          pos = { leg: 'D', entryT: h1[k].t, entry: Math.min(cho.P, h1[k].o), sl: cho.sl, slHist: [{ t: h1[k].t, sl: cho.sl }], method: 'Full breakout D (Buy Limit khớp)', choTu: cho.tu };
+          cho = null;
+        }
+        if (pos && h1[k].l <= pos.sl) {
+          trades.push(dongLenh(pos, h1[k].t, pos.sl, 'SL'));
+          pos = null; break;
+        }
+        k++;
       }
     }
     if (pos) trades.push(dongLenh(pos, null, null, 'DANG_MO'));
@@ -258,7 +273,7 @@
       }
       return null;
     };
-    return { trades, dTrailAt };
+    return { trades, dTrailAt, cho: pos ? null : cho };
   }
 
   function dongLenh(pos, t, gia, lyDo) {
@@ -270,19 +285,23 @@
   }
 
   // ---------- 3. LỆNH H4 / H8 / H12 ("logic H4") ----------
-  function chayMain(ten, gio, main, h1, bias, dTrailAt, tuNgay) {
+  // v5.10: rào RSI(H1)<20 chỉ còn ở H4 (raoH1); cả 3 khung thêm rào SL tối đa 5% bằng lệnh chờ
+  function chayMain(ten, gio, main, h1, bias, dTrailAt, tuNgay, raoH1 = true) {
     const cb = chiBao(main);
     const cbH = chiBao(h1);
     const dur = gio * H;
     const nWin = P.mainOversoldLookback * gio;
     const trades = [];
     let pos = null, breakout = false, waiting = false;
+    let cho = null; // lệnh chờ {P, sl, nguon:'MAIN'|'H1', method}
 
     const h1Idx = (t) => viTri(h1, t);
     const oversold = (endIdx) => { // endIdx bao gồm, lùi nWin nến
+      if (!raoH1) return false;
       for (let k = Math.max(0, endIdx - nWin + 1); k <= endIdx; k++) if (cbH.rsi[k] < P.mainOversoldThresh) return true;
       return false;
     };
+    const xa = (gia, sl) => P.maxSlPct > 0 && (gia - sl) / gia > P.maxSlPct / 100;
     // Tính SL theo Pha A/B (m = nến MAIN tham chiếu)
     const tinhSL = (m) => {
       const trail1 = cb.basis[m] * (1 - P.mainSlBuf / 100);
@@ -294,10 +313,25 @@
       if (pos.peak !== null && pos.peak >= pos.entry && pos.peak > cand) return pos.peak;
       return cand;
     };
+    // SL dự kiến nếu vào tại giá tín hiệu (dùng cho rào 5%)
+    const slTinHieu = (m, gia) => {
+      const trail1 = cb.basis[m] * (1 - P.mainSlBuf / 100);
+      if (gia > cb.p20[m] && gia > cb.p55[m]) {
+        const dTrail = dTrailAt(main[m].t);
+        return (dTrail !== null && dTrail >= gia) ? dTrail : Math.min(trail1, gia);
+      }
+      return trail1;
+    };
     const moLenh = (m, t, gia, method) => {
       pos = { leg: ten, entryT: t, entry: gia, phaseB: false, peak: null, sl: 0, slHist: [], method };
       pos.sl = tinhSL(m); pos.slHist.push({ t, sl: pos.sl });
-      breakout = true; waiting = false;
+      breakout = true; waiting = false; cho = null;
+    };
+    // Vào market, hoặc đặt lệnh chờ nếu SL xa hơn 5%
+    const vaoHoacCho = (m, t, gia, method, nguon) => {
+      const sl = slTinHieu(m, gia);
+      if (xa(gia, sl)) { cho = { P: sl / (1 - P.maxSlPct / 100), sl, nguon, method }; breakout = true; waiting = false; }
+      else moLenh(m, t, gia, method);
     };
     const dongVi = (t, gia, lyDo) => {
       trades.push(dongLenh(pos, t, gia, lyDo));
@@ -317,20 +351,25 @@
       }
       // (2) Xác nhận qua H1 cho nến H1 vừa đóng (j-1)
       const p = j - 1;
-      if (waiting && !pos && bias.biasAt(h1[p].t) && !Number.isNaN(cbH.L4[p]) && !Number.isNaN(cbH.L4[p - 1])) {
+      if (waiting && !pos && !cho && bias.biasAt(h1[p].t) && !Number.isNaN(cbH.L4[p]) && !Number.isNaN(cbH.L4[p - 1])) {
         const bo = cbH.rsi[p] >= cbH.L4[p] + cbH.buf[p] && cbH.rsi[p - 1] < cbH.L4[p - 1] + cbH.buf[p - 1];
         if (bo) {
           const ms = viTri(main, h1[p].t); // nến MAIN chứa nến H1 này
           if (ms >= 0 && h1[p].c > cb.basis[ms] && !oversold(p) && h1[p].c > cb.p55[ms]) {
-            moLenh(ms, T, h1[p].c, 'Backtest ' + ten + ' → xác nhận H1');
+            vaoHoacCho(ms, T, h1[p].c, 'Backtest ' + ten + ' → xác nhận H1', 'H1');
           }
         }
       }
-      // (3) Kiểm tra SL trên nến H1 j
+      // (3) Khớp lệnh chờ trên nến H1 j (low ≤ P) — vào ở Pha A với SL gắn sẵn
+      if (cho && !pos && h1[j].l <= cho.P) {
+        pos = { leg: ten, entryT: T, entry: Math.min(cho.P, h1[j].o), phaseB: false, peak: null, sl: cho.sl, slHist: [{ t: T, sl: cho.sl }], method: cho.method + ' (Buy Limit khớp)' };
+        cho = null; breakout = true; waiting = false;
+      }
+      // (4) Kiểm tra SL trên nến H1 j
       if (pos && h1[j].l <= pos.sl) dongVi(T, pos.sl, 'SL');
     }
     if (pos) trades.push(dongLenh(pos, null, null, 'DANG_MO'));
-    return { trades, trangThai: () => ({ breakout, waiting, pos }) };
+    return { trades, trangThai: () => ({ breakout, waiting, pos, cho }) };
 
     function xuLyMain(m, T) {
       const b = main[m];
@@ -340,17 +379,34 @@
         if (!ok) dongVi(T, b.c, 'Bias W vô hiệu');
         return;
       }
-      if (!ok) { breakout = false; waiting = false; return; }
+      if (!ok) { breakout = false; waiting = false; cho = null; return; }
       const r = cb.rsi[m], buf = cb.buf[m];
       const condFull = r >= cb.L4[m] + buf;
       const condB = r >= cb.L2[m] + buf && (cb.L4[m] - r) < P.mainCond2Tol;
+      // Đang có lệnh chờ: dời / chuyển market / huỷ
+      if (cho) {
+        if (cho.nguon === 'MAIN') {
+          if ((condFull || condB) && b.c > cb.basis[m]) {
+            const sl = slTinHieu(m, b.c);
+            if (xa(b.c, sl)) { cho.sl = sl; cho.P = sl / (1 - P.maxSlPct / 100); }
+            else moLenh(m, T, b.c, cho.method + ' (lệnh chờ → market)');
+            return;
+          }
+          cho = null; // RSI hụt hoặc close ≤ basis_min → huỷ, xét tiếp nến này như bình thường
+        } else { // nguồn H1
+          if (r < cb.L1[m]) { cho = null; breakout = false; waiting = false; return; }
+          const sl = slTinHieu(m, b.c);
+          if (xa(b.c, sl)) { cho.sl = sl; cho.P = sl / (1 - P.maxSlPct / 100); return; }
+          cho = null; // không chuyển sang market
+        }
+      }
       if (condFull || condB) {
         const method = condFull ? 'Full breakout ' + ten : ten + ' vượt 2 đường (gần L4<3đ)';
         if (b.c > cb.basis[m]) {
           const first = h1Idx(b.t);
           if (first >= 0 && oversold(first)) { breakout = true; waiting = false; return; }
           if (!(b.c > cb.p55[m])) { breakout = true; waiting = false; return; }
-          moLenh(m, T, b.c, method);
+          vaoHoacCho(m, T, b.c, method, 'MAIN');
           return;
         }
         breakout = true; waiting = false;
@@ -441,7 +497,7 @@
     const D = chayD(du.d, du.h1, bias, tuNgay);
     const legs = {};
     for (const [ten, gio, key] of [['H4', 4, 'h4'], ['H8', 8, 'h8'], ['H12', 12, 'h12']]) {
-      if (du[key]) legs[ten] = chayMain(ten, gio, du[key], du.h1, bias, D.dTrailAt, tuNgay);
+      if (du[key]) legs[ten] = chayMain(ten, gio, du[key], du.h1, bias, D.dTrailAt, tuNgay, P.raoH1[ten] !== false);
     }
     const trap = du.m15ByEntry ? chayTrap(du.m15ByEntry, D.trades, D.dTrailAt) : [];
     const trades = [...D.trades, ...Object.values(legs).flatMap((x) => x.trades), ...trap]
@@ -451,6 +507,7 @@
     const status = {
       bias: info,
       D: D.trades.find((x) => x.exitT === null) || null,
+      Dcho: D.cho || null, // lệnh chờ Buy Limit của D (nếu có)
       legs: Object.fromEntries(Object.entries(legs).map(([k, v]) => [k, v.trangThai()])),
       trap: trap.find((x) => x.exitT === null) || null,
     };

@@ -129,9 +129,12 @@
       thongKe[leg] = { total: x.soLenh - x.dangMo, tongPct: +x.pnl.toFixed(2), thang: x.thang, dangMo: x.dangMo };
     }
     const viTheMo = (tr) => tr ? { pos: { price: tr.entry, sl: tr.slHist.length ? tr.slHist[tr.slHist.length - 1].sl : null } } : null;
-    const legs = { D: viTheMo(kq.status.D), Trap: viTheMo(kq.status.trap) };
+    const legs = { D: viTheMo(kq.status.D) || { pos: null }, Trap: viTheMo(kq.status.trap) };
+    // v5.10: lệnh chờ Buy Limit (giá P + SL gắn sẵn) — null nếu không có
+    legs.D.cho = kq.status.Dcho ? { price: kq.status.Dcho.P, sl: kq.status.Dcho.sl } : null;
     for (const [k, v] of Object.entries(kq.status.legs)) {
-      legs[k] = { pos: v.pos ? { price: v.pos.entry, sl: v.pos.sl } : null, waiting: v.waiting, breakout: v.breakout };
+      legs[k] = { pos: v.pos ? { price: v.pos.entry, sl: v.pos.sl } : null, waiting: v.waiting, breakout: v.breakout,
+        cho: v.cho ? { price: v.cho.P, sl: v.cho.sl } : null };
     }
     const b = kq.status.bias || {};
     return {
