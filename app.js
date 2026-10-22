@@ -1439,12 +1439,11 @@ function eaCapNhatPnl() {
   eaOpenPrim.updatePnl(cur, caiDatEA.pnl);
 }
 
-// Đường đoạn: lệnh đang mở (entry) + SL — dùng primitive thay createPriceLine
+// Đường đoạn: lệnh đang mở (entry) + SL + buy limit chờ — dùng primitive thay createPriceLine
 function eaVeOpenLines(kq) {
   if (eaOpenPrim) { try { nenSeries.detachPrimitive(eaOpenPrim); } catch (e) {} eaOpenPrim = null; }
-  if (!kq?.trades?.length) return;
-  const open = kq.trades.filter(t => t.exitT === null && eaLegEnabled(t.leg));
-  if (!open.length) return;
+  if (!kq) return;
+  const open = (kq.trades || []).filter(t => t.exitT === null && eaLegEnabled(t.leg));
   const entryItems = [];
   const slItems = [];
   if (caiDatEA.entry) {
@@ -1458,6 +1457,17 @@ function eaVeOpenLines(kq) {
       const lastSL = tr.slHist?.length ? tr.slHist[tr.slHist.length - 1].sl : null;
       if (lastSL == null) continue;
       slItems.push({ price: lastSL, label: `SL (${tr.leg})`, color: '#ef5350' });
+    }
+    // Buy Limit chờ (L5 only)
+    if (!eaIsVN()) {
+      const legs = kq.status?.legs || {};
+      for (const l of EA_LUONGS) {
+        if (!caiDatEA[l]) continue;
+        const cho = legs[l]?.cho;
+        if (!cho) continue;
+        slItems.push({ price: cho.price, label: `buy limit (${l})`, color: '#ff9800' });
+        if (cho.sl != null) slItems.push({ price: cho.sl, label: `SL (${l})`, color: '#ef5350' });
+      }
     }
   }
   if (!entryItems.length && !slItems.length) return;
@@ -1505,6 +1515,7 @@ function eaVeStatus(kq) {
       const d = legs[l];
       let txt = 'Chờ tín hiệu';
       if (d?.pos) txt = `Mở @${dinhDangGia(d.pos.price)}, SL ${dinhDangGia(d.pos.sl)}`;
+      else if (d?.cho) txt = `⏳ Buy Limit @${dinhDangGia(d.cho.price)} · SL ${dinhDangGia(d.cho.sl)}`;
       else if (d?.waiting) txt = 'Chờ xác nhận H1';
       else if (d?.breakout) txt = 'Đã breakout';
       return `<div class="eas-row"><span class="eas-leg" style="color:${EA_MAUS[l]}">${l}</span><span>${txt}</span></div>`;
@@ -1543,6 +1554,8 @@ function eaVeTrades(kq) {
       const pct = tr.pnlPct || 0;
       const isOpen = tr.exitT === null;
       const cls = isOpen ? 'eat-open' : pct >= 0 ? 'eat-win' : 'eat-loss';
+      const nhanChoDL = (!eaIsVN() && tr.method?.includes('Buy Limit khớp'))
+        ? ' <span style="color:#ff9800;font-size:9px">(lệnh chờ)</span>' : '';
       html += `<div class="eat-row ${cls}" data-entry="${tr.entryT}">` +
         `<span class="eat-leg" style="color:${mau}">${tr.leg}</span>` +
         `<span class="eat-time">${fmtThoiGian(tr.entryT)}</span>` +
@@ -1550,7 +1563,7 @@ function eaVeTrades(kq) {
         `<span class="eat-time">${isOpen ? '⏳' : fmtThoiGian(tr.exitT)}</span>` +
         `<span class="eat-price">${isOpen ? '—' : dinhDangGia(tr.exit)}</span>` +
         `<span class="eat-pct">${isOpen ? 'Mở' : (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'}</span>` +
-        `<span class="eat-reason">${tr.reason || ''}</span></div>`;
+        `<span class="eat-reason">${tr.reason || ''}${nhanChoDL}</span></div>`;
     }
   }
   list.innerHTML = html;
