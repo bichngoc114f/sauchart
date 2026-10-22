@@ -130,6 +130,8 @@ let nenTienTo = [];    // nến 1H từ đầu năm tới trước nến đầu 
 let ketQua = null;     // kết quả tính chỉ báo gần nhất
 let wsNen = null;
 let phien = 0;         // chống lỗi khi bấm đổi mã/khung liên tục
+let dangTaiThem = false;  // đang tải thêm nến cũ
+let daHetLichSu = false;  // đã về tới nến đầu tiên
 
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
@@ -336,10 +338,11 @@ function binanceIntervalToOKX(kh) {
                '1d':'1D','2d':'2D','3d':'3D','1w':'1W'};
   return MAP[kh] || kh;
 }
-async function goiOKX(ma, khung) {
+async function goiOKX(ma, khung, afterMs = null) {
   const instId = binanceSymToOKX(ma);
   const bar    = binanceIntervalToOKX(khung);
-  const url    = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=300`;
+  let url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=300`;
+  if (afterMs != null) url += `&after=${afterMs}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`OKX HTTP ${res.status}`);
   const d = await res.json();
@@ -740,7 +743,12 @@ chart.subscribeCrosshairMove((param) => {
 });
 
 // Kéo/zoom biểu đồ hoặc đổi kích thước màn hình → cập nhật vị trí nhãn giá
-chart.timeScale().subscribeVisibleLogicalRangeChange(() => capNhatNhanGia());
+chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+  capNhatNhanGia();
+  if (range && range.from < 50 && !dangTaiThem && !daHetLichSu) {
+    taiThemNenCu();
+  }
+});
 window.addEventListener('resize', () => capNhatNhanGia());
 
 // Tìm vị trí cây nến theo thời gian (tìm nhị phân cho nhanh)
@@ -757,6 +765,8 @@ function timNen(t) {
 // Tải lại toàn bộ biểu đồ khi đổi mã / khung giờ
 async function napBieuDo() {
   const toi = ++phien;
+  dangTaiThem = false;
+  daHetLichSu = false;
   ghiBoNho('ma', maHienTai);
   ghiBoNho('khung', khungHienTai);
   document.getElementById('symbolTitle').textContent = maHienTai;
@@ -801,6 +811,76 @@ async function napBieuDo() {
     }
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
+  }
+}
+
+// Tải thêm nến cũ khi người dùng kéo sang trái (chỉ cho crypto / Binance)
+async function taiThemNenCu() {
+  if (dangTaiThem || daHetLichSu) return;
+  if (DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
+  if (!duLieuNen.length) return;
+
+  dangTaiThem = true;
+  const phienNay = phien;
+  datTrangThai('Đang tải nến cũ...');
+
+  try {
+    const nenCuNhat = duLieuNen[0];
+    // Đổi ngược thời gian app (đã cộng LECH_GIO) về UTC ms để làm endTime
+    const endTimeMs = (nenCuNhat.time - LECH_GIO) * 1000 - 1;
+
+    let nenMoi;
+    let gioiHan;
+    if (khungHienTai === '2d') {
+      // Binance không có khung 2d → dùng OKX với after (ms của nến cũ nhất)
+      const afterMs = (nenCuNhat.time - LECH_GIO) * 1000;
+      nenMoi = await goiOKX(maHienTai, '2d', afterMs);
+      gioiHan = 300;
+    } else {
+      nenMoi = await goiBinance(
+        `symbol=${maHienTai}&interval=${khungHienTai}&endTime=${endTimeMs}&limit=1000`
+      );
+      gioiHan = 1000;
+    }
+
+    if (phienNay !== phien) return; // mã/khung đã đổi trong lúc tải
+
+    if (nenMoi.length < gioiHan) daHetLichSu = true;
+
+    if (!nenMoi.length) {
+      datTrangThai('Đã tới nến đầu tiên', 'ok');
+      return;
+    }
+
+    // Loại trùng theo time rồi ghép vào đầu
+    const daCoTime = new Set(duLieuNen.map(n => n.time));
+    const them = nenMoi.filter(n => !daCoTime.has(n.time));
+
+    if (!them.length) {
+      daHetLichSu = true;
+      datTrangThai('Đã tới nến đầu tiên', 'ok');
+      return;
+    }
+
+    // Lưu range hiện tại để bù offset sau khi thêm nến
+    const range = chart.timeScale().getVisibleLogicalRange();
+    duLieuNen = [...them, ...duLieuNen];
+    veToanBo();
+
+    // Dịch range đúng số nến vừa chèn để biểu đồ không nhảy
+    if (range) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: range.from + them.length,
+        to: range.to + them.length,
+      });
+    }
+
+    datTrangThai(daHetLichSu ? 'Đã tới nến đầu tiên' : 'Real-time', 'ok');
+  } catch (e) {
+    console.warn('Lỗi tải thêm nến:', e);
+    if (phienNay === phien) datTrangThai('Real-time', 'ok');
+  } finally {
+    dangTaiThem = false;
   }
 }
 
