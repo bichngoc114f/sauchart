@@ -54,12 +54,12 @@ const DANH_SACH_VN = [
 const KHUNG_GIO = [
   ['15m', '15m'], ['30m', '30m'],
   ['1h', '1H'], ['2h', '2H'], ['4h', '4H'], ['8h', '8H'], ['12h', '12H'],
-  ['1d', '1D'], ['2d', '2D'], ['3d', '3D'], ['1w', '1W'], ['1M', 'M'],
+  ['1d', '1D'], ['2d', '2D'], ['3d', '3D'], ['1w', '1W'], ['2w', '2W'], ['1M', 'M'],
 ];
 
-// Khung giờ cho VN: H4, D, 2D, 3D, W, M
+// Khung giờ cho VN: H4, D, 2D, 3D, W, 2W, M
 const KHUNG_GIO_VN = [
-  ['h4', 'H4'], ['1d', 'D'], ['2d', '2D'], ['3d', '3D'], ['1w', 'W'], ['1M', 'M'],
+  ['h4', 'H4'], ['1d', 'D'], ['2d', '2D'], ['3d', '3D'], ['1w', 'W'], ['2w', '2W'], ['1M', 'M'],
 ];
 
 const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
@@ -466,6 +466,35 @@ function _gopTuan(daily) {
   return out.sort((a,b)=>a.time-b.time);
 }
 
+function _gop2W(weekly) {
+  // weekly: mảng nến 1W (time = giây UTC+7 cho crypto, UTC 00:00 cho VN)
+  // Căn theo epoch: soTuan = floor((UTC_giây_mở_nến - 345600) / 604800)
+  // 345600 = 4 ngày (Thứ Hai 00:00 UTC của tuần đầu tiên)
+  // maCap = floor(soTuan / 2) → nhóm 2 tuần liên tiếp
+  const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
+  const m = new Map();
+  for (const b of weekly) {
+    const utcSec = isVN ? b.time : (b.time - LECH_GIO);
+    const soTuan = Math.floor((utcSec - 345600) / 604800);
+    const maCap = Math.floor(soTuan / 2);
+    if (!m.has(maCap)) m.set(maCap, []);
+    m.get(maCap).push(b);
+  }
+  const out = [];
+  for (const [, g] of m) {
+    g.sort((a, b) => a.time - b.time);
+    out.push({
+      time: g[0].time,
+      open: g[0].open,
+      high: Math.max(...g.map(b => b.high)),
+      low: Math.min(...g.map(b => b.low)),
+      close: g[g.length - 1].close,
+      volume: g.reduce((s, b) => s + b.volume, 0),
+    });
+  }
+  return out.sort((a, b) => a.time - b.time);
+}
+
 function _gopThang(daily) {
   const m = new Map();
   for (const b of daily) {
@@ -506,6 +535,7 @@ async function goiKBSIndex(sym, khung, fromYear) {
   if (khung === '1d') return daily;
   if (khung === '3d') return _gop3D(daily);
   if (khung === '1w') return _gopTuan(daily);
+  if (khung === '2w') return _gop2W(_gopTuan(daily));
   if (khung === '1M') return _gopThang(daily);
   return daily;
 }
@@ -549,6 +579,7 @@ async function goiVPSIndex(sym, khung) {
   if (khung === '1d') return bars;
   if (khung === '3d') return _gop3D(bars);
   if (khung === '1w') return _gopTuan(bars);
+  if (khung === '2w') return _gop2W(_gopTuan(bars));
   if (khung === '1M') return _gopThang(bars);
   return bars;
 }
@@ -567,6 +598,7 @@ async function goiVNDirectIndex(sym, khung) {
   if (khung === '1d') return daily;
   if (khung === '3d') return _gop3D(daily);
   if (khung === '1w') return _gopTuan(daily);
+  if (khung === '2w') return _gop2W(_gopTuan(daily));
   if (khung === '1M') return _gopThang(daily);
   return daily;
 }
@@ -602,6 +634,7 @@ async function goiKBSStock(sym, khung) {
   if (khung === '1d') return daily;
   if (khung === '3d') return _gop3D(daily);
   if (khung === '1w') return _gopTuan(daily);
+  if (khung === '2w') return _gop2W(_gopTuan(daily));
   if (khung === '1M') return _gopThang(daily);
   return daily;
 }
@@ -620,6 +653,7 @@ async function goiVPSStock(sym, khung) {
   if (khung === '1d') return daily;
   if (khung === '3d') return _gop3D(daily);
   if (khung === '1w') return _gopTuan(daily);
+  if (khung === '2w') return _gop2W(_gopTuan(daily));
   if (khung === '1M') return _gopThang(daily);
   return daily;
 }
@@ -646,17 +680,50 @@ function moKetNoiRealtime(ma, khung) {
   ws.onopen = () => datTrangThai('Real-time', 'ok');
   ws.onmessage = (event) => {
     const k = JSON.parse(event.data).k;
-    const nen = {
+    const nen1w = {
       time: Math.floor(k.t / 1000) + LECH_GIO,
       open: +k.o, high: +k.h, low: +k.l, close: +k.c, volume: +k.v,
     };
-    const cuoi = duLieuNen[duLieuNen.length - 1];
-    if (!cuoi || nen.time < cuoi.time) return;
-    if (nen.time === cuoi.time) duLieuNen[duLieuNen.length - 1] = nen;
-    else duLieuNen.push(nen);
+    if (khungHienTai === '2w') {
+      // Cập nhật nến 2W cuối: high/low/close/volume từ 1W đang chạy
+      const cuoi = duLieuNen[duLieuNen.length - 1];
+      if (!cuoi) return;
+      const utcSec = nen1w.time - LECH_GIO;
+      const soTuan = Math.floor((utcSec - 345600) / 604800);
+      const maCap = Math.floor(soTuan / 2);
+      const utcSecCuoi = cuoi.time - LECH_GIO;
+      const soTuanCuoi = Math.floor((utcSecCuoi - 345600) / 604800);
+      const maCapCuoi = Math.floor(soTuanCuoi / 2);
+      if (maCap === maCapCuoi) {
+        // Cùng cặp → cập nhật nến 2W cuối
+        duLieuNen[duLieuNen.length - 1] = {
+          time: cuoi.time,
+          open: cuoi.open,
+          high: Math.max(cuoi.high, nen1w.high),
+          low: Math.min(cuoi.low, nen1w.low),
+          close: nen1w.close,
+          volume: cuoi.volume + nen1w.volume,
+        };
+      } else {
+        // Tuần mới bắt đầu cặp mới → thêm nến 2W mới
+        duLieuNen.push({
+          time: nen1w.time,
+          open: nen1w.open,
+          high: nen1w.high,
+          low: nen1w.low,
+          close: nen1w.close,
+          volume: nen1w.volume,
+        });
+      }
+    } else {
+      const cuoi = duLieuNen[duLieuNen.length - 1];
+      if (!cuoi || nen1w.time < cuoi.time) return;
+      if (nen1w.time === cuoi.time) duLieuNen[duLieuNen.length - 1] = nen1w;
+      else duLieuNen.push(nen1w);
+    }
     veNenCuoi();
     capNhatLegend(duLieuNen.length - 1);
-    document.getElementById('symbolPrice').textContent = dinhDangGia(nen.close);
+    document.getElementById('symbolPrice').textContent = dinhDangGia(duLieuNen[duLieuNen.length - 1].close);
   };
   ws.onclose = () => {
     datTrangThai('Mất kết nối, đang thử lại...', 'err');
@@ -790,8 +857,14 @@ async function napBieuDo() {
       if (!nen.length) throw new Error('Không có dữ liệu cho mã này');
     } else {
       // --- Crypto: dùng Binance ---
-      nen = await goiBinance(`symbol=${maHienTai}&interval=${khungHienTai}&limit=1000`);
-      tienTo = await taiTienTo(maHienTai, nen[0]);
+      if (khungHienTai === '2w') {
+        const nen1w = await goiBinance(`symbol=${maHienTai}&interval=1w&limit=1000`);
+        nen = _gop2W(nen1w);
+        tienTo = await taiTienTo(maHienTai, nen[0]);
+      } else {
+        nen = await goiBinance(`symbol=${maHienTai}&interval=${khungHienTai}&limit=1000`);
+        tienTo = await taiTienTo(maHienTai, nen[0]);
+      }
     }
     if (toi !== phien) return;
     duLieuNen = nen;
@@ -800,7 +873,7 @@ async function napBieuDo() {
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
-    if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai); }
+    if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai === '2w' ? '1w' : khungHienTai); }
     else { datTrangThai('KBS · dữ liệu VN', 'ok'); }
     batDauNhanGia();
     veNutEA();
@@ -836,6 +909,15 @@ async function taiThemNenCu() {
       const afterMs = (nenCuNhat.time - LECH_GIO) * 1000;
       nenMoi = await goiOKX(maHienTai, '2d', afterMs);
       gioiHan = 300;
+    } else if (khungHienTai === '2w') {
+      // Fetch 1W cũ hơn nến 2W đầu tiên (cần thêm 1 tuần buffer cho nến biên)
+      const endTime1w = (nenCuNhat.time - LECH_GIO) * 1000;
+      const raw1w = await goiBinance(`symbol=${maHienTai}&interval=1w&endTime=${endTime1w}&limit=1000`);
+      gioiHan = 1000;
+      // Gộp thành 2W, loại nến cuối có cùng maCap với nến đầu tiên hiện có (nến biên)
+      const all2w = _gop2W(raw1w);
+      const dauHienCo = duLieuNen[0].time;
+      nenMoi = all2w.filter(n => n.time < dauHienCo);
     } else {
       nenMoi = await goiBinance(
         `symbol=${maHienTai}&interval=${khungHienTai}&endTime=${endTimeMs}&limit=1000`
@@ -845,11 +927,11 @@ async function taiThemNenCu() {
 
     if (phienNay !== phien) return; // mã/khung đã đổi trong lúc tải
 
-    if (nenMoi.length < gioiHan) daHetLichSu = true;
-
-    if (!nenMoi.length) {
-      datTrangThai('Đã tới nến đầu tiên', 'ok');
-      return;
+    if (khungHienTai === '2w') {
+      if (!nenMoi.length) { daHetLichSu = true; datTrangThai('Đã tới nến đầu tiên', 'ok'); return; }
+    } else {
+      if (nenMoi.length < gioiHan) daHetLichSu = true;
+      if (!nenMoi.length) { datTrangThai('Đã tới nến đầu tiên', 'ok'); return; }
     }
 
     // Loại trùng theo time rồi ghép vào đầu
@@ -1045,6 +1127,9 @@ function tinhKetThucNen() {
     } else if (khungHienTai === '1w') {
       // Nến W mở thứ Hai, đóng thứ Sáu lúc 14:45 VN
       closeRealUTC = Date.UTC(y, mo, d + 4, 7, 45) / 1000;
+    } else if (khungHienTai === '2w') {
+      // Nến 2W mở thứ Hai đầu cặp, đóng thứ Sáu tuần thứ 2 lúc 14:45 VN
+      closeRealUTC = Date.UTC(y, mo, d + 11, 7, 45) / 1000;
     } else { // '1M'
       const ltd = _lastTradingDayOfMonth(y, mo);
       const ld = new Date(ltd * 1000);
@@ -1058,7 +1143,7 @@ function tinhKetThucNen() {
     const durMap = {
       '15m': 900, '30m': 1800,
       '1h': 3600, '2h': 7200, '4h': 14400, '8h': 28800, '12h': 43200,
-      '1d': 86400, '2d': 172800, '3d': 259200, '1w': 604800,
+      '1d': 86400, '2d': 172800, '3d': 259200, '1w': 604800, '2w': 1209600,
     };
     let closeUTC;
     if (khungHienTai in durMap) {
