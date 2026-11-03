@@ -5,7 +5,8 @@
 //   - Mỗi khung tính 8 SMA trên giá đóng của chính khung: 34,55,89,144,233,377,610,987.
 //   - Tại mỗi nến lấy K đường GẦN GIÁ NHẤT (|SMA − close| nhỏ nhất):
 //       H12: 4, H8: 5, H4: 6, H2: 7, H1: 8.
-//   - độ rộng = (max − min của K đường) / close × 100; co bó khi ≤ NGUONG.
+//   - độ rộng = (max − min của K đường) / close × 100; co bó khi ≤ NGUONG
+//     VÀ khoảng cách giá → SMA gần nhất ≤ KC_GIA (thêm 03/11/2026).
 //   - "Vào vùng mới" = nến vừa đóng co bó, nến trước đó không co bó.
 //  Trạng thái (nến đã xét của từng khung) lưu ở .cobo-state (GitHub cache).
 //  Cần 2 secret: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
@@ -15,6 +16,7 @@ const fs = require('fs');
 
 const MA = 'BTCUSDT';
 const NGUONG = 3.0; // % — Sâu chốt 03/11/2026
+const KC_GIA = 3.0; // % — |close − SMA gần nhất| / close tối đa
 const SMA = [34, 55, 89, 144, 233, 377, 610, 987];
 const H = 3600e3, VN = 7 * H;
 // Thứ tự hiển thị giống web: H12, H8, H4, H2, H1
@@ -66,11 +68,13 @@ function doRong(bars, K) {
   return bars.map((b, i) => {
     const v = S.map((x) => x[i]);
     if (v.some(Number.isNaN)) return null;
-    const gan = v.map((x) => [Math.abs(x - b.c), x]).sort((a, b) => a[0] - b[0]).slice(0, K).map((x) => x[1]);
-    return ((Math.max(...gan) - Math.min(...gan)) / b.c) * 100;
+    const xep = v.map((x) => [Math.abs(x - b.c), x]).sort((a, b) => a[0] - b[0]);
+    const gan = xep.slice(0, K).map((x) => x[1]);
+    // w = độ rộng K đường gần giá nhất; d = khoảng cách giá → SMA gần nhất (%)
+    return { w: ((Math.max(...gan) - Math.min(...gan)) / b.c) * 100, d: (xep[0][0] / b.c) * 100 };
   });
 }
-const coBo = (w) => w !== null && w <= NGUONG;
+const coBo = (x) => x !== null && x.w <= NGUONG && x.d <= KC_GIA;
 
 // ---------- Telegram + trạng thái ----------
 async function gui(text) {
@@ -109,18 +113,18 @@ async function main() {
   const trangThai = () => kq.map((x) => {
     const r = x.w[x.i];
     const ttxt = x.dang ? `CO BÓ từ ${gioVN(batDauVung(x.bars, x.w, x.i))}` : 'không';
-    return `${x.k.mau} <b>${x.k.id}</b> (${x.k.K} đường): ${r === null ? '–' : r.toFixed(2) + '%'} · ${ttxt}`;
+    return `${x.k.mau} <b>${x.k.id}</b> (${x.k.K} đường): ${r === null ? '–' : 'rộng ' + r.w.toFixed(2) + '%, cách giá ' + r.d.toFixed(2) + '%'} · ${ttxt}`;
   }).join('\n');
   const giaNay = kq.find((x) => x.k.id === 'H1').bars.at(-1).c;
 
   const suKien = kq.flatMap((x) => x.vaoMoi.map((j) => ({ x, j })));
   if (suKien.length) {
-    const dong = suKien.map(({ x, j }) => `${x.k.mau} <b>${x.k.id}</b> vào vùng co bó MỚI — nến ${gioVN(x.bars[j].t)}, độ rộng ${x.w[j].toFixed(2)}% (${x.k.K} đường gần giá nhất)`);
+    const dong = suKien.map(({ x, j }) => `${x.k.mau} <b>${x.k.id}</b> vào vùng co bó MỚI — nến ${gioVN(x.bars[j].t)}, độ rộng ${x.w[j].w.toFixed(2)}%, cách giá ${x.w[j].d.toFixed(2)}% (${x.k.K} đường gần giá nhất)`);
     const dangCoBo = kq.filter((x) => x.dang).map((x) => x.k.id);
-    await gui(`<b>📐 BTC — Vùng co bó mới</b> (ngưỡng ${NGUONG}%)\n` + dong.join('\n') +
+    await gui(`<b>📐 BTC — Vùng co bó mới</b> (rộng ≤ ${NGUONG}%, cách giá ≤ ${KC_GIA}%)\n` + dong.join('\n') +
       `\n\nGiá ${gia(giaNay)} · Đang co bó ${dangCoBo.length}/5 khung: ${dangCoBo.join(', ') || '–'}`);
   }
-  if (THU) await gui(`<b>📐 BTC — Trạng thái vùng co bó</b> (ngưỡng ${NGUONG}%, giá ${gia(giaNay)})\n` + trangThai());
+  if (THU) await gui(`<b>📐 BTC — Trạng thái vùng co bó</b> (rộng ≤ ${NGUONG}%, cách giá ≤ ${KC_GIA}%, giá ${gia(giaNay)})\n` + trangThai());
   ghiTT(tt);
 }
 main().catch(async (e) => {
