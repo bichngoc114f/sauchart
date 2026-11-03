@@ -146,8 +146,9 @@ let daHetLichSu = false;  // đã về tới nến đầu tiên
 let coboBat = docBoNho('coboBat', false);
 let coboVisBat = Object.assign({h4:true,h8:true,h2:true,h12:true,h1:true}, docBoNho('coboVis',{}));
 let coboTabSel = docBoNho('coboTab', 0);
+let coboNguong = docBoNho('coboNguong', 3.5);
 let coboComboSel = 0;
-let coboKetQua = {};   // {ma: {h4,h8,h2,h12,h1: [{s,e}], lastH1T}}
+let coboKetQua = {};   // {ma: {h4,h8,h2,h12,h1: {widths,ts,durMs,zones}, lastH1T}}
 let coboBitmask = [];  // parallel to duLieuNen: số nguyên, bits 1-16 theo COBO_KHUNG
 let coboPrim = null;
 let coboLoading = false;
@@ -1024,33 +1025,44 @@ function _gopH2(h1bars) {
   return [...m.values()].filter(e => cnt.get(e.t) >= 2).sort((a,b) => a.t - b.t);
 }
 
-function _coboZones(bars, kInfo) {
+// Tính trước mảng độ rộng min cho từng nến (NaN khi chưa đủ 987 nến)
+function _coboCalcWidths(bars, kInfo) {
   const { smas: periods, soDuong: K, ms: durMs } = kInfo;
-  const maxP = periods[periods.length - 1]; // 987 — chờ đủ nến
+  const maxP = periods[periods.length - 1]; // 987
   const closes = bars.map(b => b.c);
   const smaArrays = periods.map(p => _sma(closes, p));
-  const nGroups = periods.length - K + 1; // số nhóm K đường liền kề
-  const zones = [];
-  let zStart = null;
-  for (let i = 0; i < bars.length; i++) {
-    if (i < maxP - 1) {
-      if (zStart !== null) { zones.push({s: zStart, e: bars[i].t}); zStart = null; }
-      continue;
-    }
+  const nGroups = periods.length - K + 1;
+  const widths = new Float32Array(bars.length).fill(NaN);
+  for (let i = maxP - 1; i < bars.length; i++) {
     const vals = smaArrays.map(s => s[i]).sort((a, b) => a - b);
     let minW = Infinity;
     for (let j = 0; j < nGroups; j++) {
       const w = (vals[j + K - 1] - vals[j]) / closes[i] * 100;
       if (w < minW) minW = w;
     }
-    if (minW <= 5) {
-      if (zStart === null) zStart = bars[i].t;
+    widths[i] = minW;
+  }
+  return { widths, ts: bars.map(b => b.t), durMs };
+}
+
+// Dựng danh sách vùng từ mảng độ rộng + ngưỡng (tức thì, không tính lại SMA)
+function _coboFromWidths({ widths, ts, durMs }, nguong) {
+  const zones = [];
+  let zStart = null;
+  for (let i = 0; i < widths.length; i++) {
+    const w = widths[i];
+    if (isNaN(w)) {
+      if (zStart !== null) { zones.push({s: zStart, e: ts[i]}); zStart = null; }
+      continue;
+    }
+    if (w <= nguong) {
+      if (zStart === null) zStart = ts[i];
     } else {
-      if (zStart !== null) { zones.push({s: zStart, e: bars[i].t}); zStart = null; }
+      if (zStart !== null) { zones.push({s: zStart, e: ts[i]}); zStart = null; }
     }
   }
-  if (zStart !== null && bars.length) zones.push({s: zStart, e: bars[bars.length-1].t + durMs});
-  return zones; // [{s: ms UTC, e: ms UTC}] sorted ascending
+  if (zStart !== null && ts.length) zones.push({s: zStart, e: ts[ts.length-1] + durMs});
+  return zones;
 }
 
 function _coboOverlap(zones, startMs, endMs) {
@@ -1173,12 +1185,19 @@ async function coboTinh(ma) {
     ]);
     const h2bars = _gopH2(h1bars);
     const CFG = Object.fromEntries(COBO_KHUNG.map(k => [k.id, k]));
+    const calc = {
+      h4:  _coboCalcWidths(h4bars,  CFG.h4),
+      h8:  _coboCalcWidths(h8bars,  CFG.h8),
+      h2:  _coboCalcWidths(h2bars,  CFG.h2),
+      h12: _coboCalcWidths(h12bars, CFG.h12),
+      h1:  _coboCalcWidths(h1bars,  CFG.h1),
+    };
     coboKetQua[ma] = {
-      h4:  _coboZones(h4bars,  CFG.h4),
-      h8:  _coboZones(h8bars,  CFG.h8),
-      h2:  _coboZones(h2bars,  CFG.h2),
-      h12: _coboZones(h12bars, CFG.h12),
-      h1:  _coboZones(h1bars,  CFG.h1),
+      h4:  { ...calc.h4,  zones: _coboFromWidths(calc.h4,  coboNguong) },
+      h8:  { ...calc.h8,  zones: _coboFromWidths(calc.h8,  coboNguong) },
+      h2:  { ...calc.h2,  zones: _coboFromWidths(calc.h2,  coboNguong) },
+      h12: { ...calc.h12, zones: _coboFromWidths(calc.h12, coboNguong) },
+      h1:  { ...calc.h1,  zones: _coboFromWidths(calc.h1,  coboNguong) },
       lastH1T: h1bars.length ? h1bars[h1bars.length-1].t : 0,
     };
     datTrangThai('Real-time', 'ok');
@@ -1202,8 +1221,8 @@ function coboTinhBitmask() {
       : nenUtcMs + khungMs;
     let mask = 0;
     for (const k of COBO_KHUNG) {
-      if (!kq[k.id]?.length) continue;
-      if (_coboOverlap(kq[k.id], nenUtcMs, nenEndMs)) mask |= k.bit;
+      if (!kq[k.id]?.zones?.length) continue;
+      if (_coboOverlap(kq[k.id].zones, nenUtcMs, nenEndMs)) mask |= k.bit;
     }
     coboBitmask[i] = mask;
   }
@@ -1214,6 +1233,18 @@ function coboVe() {
   if (!coboBat || DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
   coboPrim = new CoboPrimitive();
   nenSeries.attachPrimitive(coboPrim);
+}
+
+function coboCapNhatNguong(nguong) {
+  coboNguong = nguong;
+  ghiBoNho('coboNguong', nguong);
+  const ma = maHienTai;
+  if (!coboKetQua[ma]) return;
+  for (const k of COBO_KHUNG) {
+    const d = coboKetQua[ma][k.id];
+    if (d) d.zones = _coboFromWidths(d, coboNguong);
+  }
+  coboCapNhat();
 }
 
 function coboCapNhat() {
@@ -1348,7 +1379,19 @@ function khoiDongCoBoPanel() {
 }
 
 function coboCapNhatPanel() {
-  // Hàng 1: toggle vis (H4/H8/H2/H12/H1)
+  // Hàng 0: ngưỡng co bó
+  const nguongRow = document.getElementById('coboNguongRow');
+  if (!nguongRow) return;
+  nguongRow.innerHTML = '';
+  [5, 4, 3.5, 3].forEach(v => {
+    const b = document.createElement('button');
+    b.className = 'cobo-btn' + (coboNguong === v ? ' active' : '');
+    b.textContent = v + '%';
+    b.onclick = () => { coboCapNhatNguong(v); coboCapNhatPanel(); };
+    nguongRow.appendChild(b);
+  });
+
+  // Hàng 1: toggle vis (H12/H8/H4/H2/H1)
   const visRow = document.getElementById('coboVisRow');
   if (!visRow) return;
   visRow.innerHTML = '';
