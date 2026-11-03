@@ -1015,12 +1015,13 @@ function _sma(closes, period) {
 
 function _gopH2(h1bars) {
   const m = new Map();
+  const cnt = new Map();
   for (const b of h1bars) {
     const k = Math.floor(b.t / 7200000) * 7200000;
-    if (!m.has(k)) m.set(k, {t:k, o:b.o, h:b.h, l:b.l, c:b.c});
-    else { const e = m.get(k); e.h = Math.max(e.h, b.h); e.l = Math.min(e.l, b.l); e.c = b.c; }
+    if (!m.has(k)) { m.set(k, {t:k, o:b.o, h:b.h, l:b.l, c:b.c}); cnt.set(k, 1); }
+    else { const e = m.get(k); e.h = Math.max(e.h, b.h); e.l = Math.min(e.l, b.l); e.c = b.c; cnt.set(k, cnt.get(k)+1); }
   }
-  return [...m.values()].sort((a,b) => a.t - b.t);
+  return [...m.values()].filter(e => cnt.get(e.t) >= 2).sort((a,b) => a.t - b.t);
 }
 
 function _coboZones(bars, kInfo) {
@@ -1166,12 +1167,13 @@ async function coboTinh(ma) {
       L5Data.layKhung(ma, '12h', TU),
     ]);
     const h2bars = _gopH2(h1bars);
+    const CFG = Object.fromEntries(COBO_KHUNG.map(k => [k.id, k]));
     coboKetQua[ma] = {
-      h4:  _coboZones(h4bars,  COBO_KHUNG[0]),
-      h8:  _coboZones(h8bars,  COBO_KHUNG[1]),
-      h2:  _coboZones(h2bars,  COBO_KHUNG[2]),
-      h12: _coboZones(h12bars, COBO_KHUNG[3]),
-      h1:  _coboZones(h1bars,  COBO_KHUNG[4]),
+      h4:  _coboZones(h4bars,  CFG.h4),
+      h8:  _coboZones(h8bars,  CFG.h8),
+      h2:  _coboZones(h2bars,  CFG.h2),
+      h12: _coboZones(h12bars, CFG.h12),
+      h1:  _coboZones(h1bars,  CFG.h1),
       lastH1T: h1bars.length ? h1bars[h1bars.length-1].t : 0,
     };
     datTrangThai('Real-time', 'ok');
