@@ -66,10 +66,10 @@ const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
 
 // Vùng co bó: 5 khung, mỗi khung một màu và tập SMA riêng
 const COBO_KHUNG = [
-  { id:'h4',  ms:14400000,  smas:[34,55,89,144,233,377],         condN:6, mau:'#e66767', bit:1  },
-  { id:'h8',  ms:28800000,  smas:[34,55,89,144,233,377],         condN:5, mau:'#9085e9', bit:2  },
-  { id:'h2',  ms:7200000,   smas:[34,55,89,144,233,377,610],     condN:7, mau:'#f0a030', bit:4  },
   { id:'h12', ms:43200000,  smas:[34,55,89,144],                 condN:4, mau:'#3cc4d6', bit:8  },
+  { id:'h8',  ms:28800000,  smas:[34,55,89,144,233,377],         condN:5, mau:'#9085e9', bit:2  },
+  { id:'h4',  ms:14400000,  smas:[34,55,89,144,233,377],         condN:6, mau:'#e66767', bit:1  },
+  { id:'h2',  ms:7200000,   smas:[34,55,89,144,233,377,610],     condN:7, mau:'#f0a030', bit:4  },
   { id:'h1',  ms:3600000,   smas:[34,55,89,144,233,377,610,987], condN:8, mau:'#a8cc3c', bit:16 },
 ];
 const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
