@@ -823,6 +823,7 @@ const khungLabel = () => {
 
 // Rê chuột / chạm giữ trên biểu đồ → legend hiện số liệu của cây nến đó
 chart.subscribeCrosshairMove((param) => {
+  _crosshairY = (param.point) ? param.point.y : null;
   let i = duLieuNen.length - 1;
   if (param.time) {
     const j = timNen(param.time);
@@ -1539,6 +1540,7 @@ function batDauPollingVN() {
 // ---------- 9b. NHÃN GIÁ + ĐẾM NGƯỢC NẾN ----------
 let timerDemNguoc = null;
 let _daDatLaiNen = false;
+let _crosshairY = null; // Y crosshair trên pane (null = ngoài biểu đồ)
 
 function _fmtCountdown(s) {
   s = Math.max(0, Math.round(s));
@@ -1676,8 +1678,14 @@ function capNhatNhanGia() {
   el.style.right = '0';
   el.style.left = 'auto';
   // Căn tâm dòng giá (ng-gia cao ~18px) vào yCoord
-  el.style.top = Math.round(yCoord - 9) + 'px';
-  el.style.display = '';
+  const labelTop = Math.round(yCoord - 9);
+  el.style.top = labelTop + 'px';
+  // Ẩn khi crosshair đang đè lên vùng nhãn (±40px quanh giá hiện tại)
+  if (_crosshairY !== null && _crosshairY >= labelTop - 5 && _crosshairY <= labelTop + 45) {
+    el.style.display = 'none';
+  } else {
+    el.style.display = '';
+  }
 }
 
 function batDauNhanGia() {
