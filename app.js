@@ -164,7 +164,7 @@ let phongToKhungGia = docBoNho('phongToKhungGia', false);
 const LC = LightweightCharts;
 const chart = LC.createChart(document.getElementById('chart'), {
   autoSize: true,
-  layout: { background: { color: MAU.nen }, textColor: '#b2b5be', panes: { separatorColor: '#d1d4dc' } },
+  layout: { background: { color: MAU.nen }, textColor: '#b2b5be', panes: { separatorColor: '#d1d4dc' }, attributionLogo: false },
   grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // không kẻ lưới, giống mẫu
   crosshair: { mode: LC.CrosshairMode.Normal },
   leftPriceScale: { visible: false },
@@ -1811,6 +1811,10 @@ function veBangCaiDat() {
     };
     box.appendChild(lab);
   });
+  const attr = document.createElement('div');
+  attr.className = 'panel-attr';
+  attr.innerHTML = 'Biểu đồ: <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>';
+  box.appendChild(attr);
 }
 const panel = document.getElementById('panelCaiDat');
 document.getElementById('btnCaiDat').onclick = () => { panel.hidden = !panel.hidden; };

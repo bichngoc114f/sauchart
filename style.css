@@ -289,6 +289,16 @@ button { font-family: inherit; }
   }
 }
 
+/* ===== Attribution ===== */
+.panel-attr {
+  padding: 10px 14px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+.panel-attr a { color: inherit; text-decoration: none; }
+.panel-attr a:hover { text-decoration: underline; }
+
 /* ===== Bảng cài đặt chỉ báo ===== */
 .panel {
   position: fixed;
