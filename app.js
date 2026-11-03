@@ -154,6 +154,10 @@ let coboPrim = null;
 let coboLoading = false;
 let coboTimer = null;
 
+// Hiển thị / layout
+let watchlistThuGon = docBoNho('watchlistThuGon', false);
+let phongToKhungGia = docBoNho('phongToKhungGia', false);
+
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
 const chart = LC.createChart(document.getElementById('chart'), {
@@ -272,12 +276,13 @@ function taoSeries() {
       rsiS.createPriceLine({ price: muc, color: 'rgba(178,181,190,0.6)', lineWidth: 1, lineStyle: kieu, axisLabelVisible: false }));
     rsiS.priceScale().applyOptions({ scaleMargins: { top: 0.04, bottom: 0.04 } });
 
-    // Khung RSI chiếm khoảng 40% chiều cao như mẫu
+    // Khung RSI chiếm khoảng 40% chiều cao như mẫu (hoặc ẩn nếu đang phóng to)
     const panes = chart.panes();
     if (panes[1]) {
-      try { panes[0].setStretchFactor(60); panes[1].setStretchFactor(40); } catch (e) {}
+      try { _applyRsiPaneSize(panes); } catch (e) {}
     }
   }
+  _applyPhongToBtn();
 }
 
 // ---------- 4. TÍNH CHỈ BÁO ----------
@@ -801,7 +806,7 @@ function capNhatLegend(i) {
   // Legend của khung RSI: đặt ngay đầu khung dưới
   const lr = document.getElementById('legendRsi');
   const panes = chart.panes();
-  if (caiDat.rsi && panes[1]) {
+  if (caiDat.rsi && panes[1] && !phongToKhungGia) {
     lr.style.display = 'block';
     lr.style.top = panes[0].getHeight() + 6 + 'px';
     lr.innerHTML =
@@ -841,6 +846,57 @@ chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
   }
 });
 window.addEventListener('resize', () => capNhatNhanGia());
+
+// ---------- 8b. THU GỌN WATCHLIST ----------
+function _applyWatchlistState() {
+  const panel = document.getElementById('watchlistPanel');
+  const arrow = document.querySelector('#btnToggleWL .wl-arrow');
+  if (!panel) return;
+  if (watchlistThuGon) {
+    panel.classList.add('thu-gon');
+    if (arrow) arrow.textContent = '‹';
+  } else {
+    panel.classList.remove('thu-gon');
+    if (arrow) arrow.textContent = '›';
+  }
+}
+
+function toggleWatchlist() {
+  watchlistThuGon = !watchlistThuGon;
+  ghiBoNho('watchlistThuGon', watchlistThuGon);
+  _applyWatchlistState();
+}
+
+// ---------- 8c. PHÓNG TO KHUNG GIÁ ----------
+function _applyRsiPaneSize(panes) {
+  const p = panes || chart.panes();
+  if (!p[1]) return;
+  if (phongToKhungGia) {
+    p[0].setStretchFactor(100);
+    p[1].setStretchFactor(1);
+  } else {
+    p[0].setStretchFactor(60);
+    p[1].setStretchFactor(40);
+  }
+}
+
+function _applyPhongToBtn() {
+  const btn = document.getElementById('btnPhongTo');
+  if (!btn) return;
+  btn.textContent = phongToKhungGia ? '⤡' : '⤢';
+  btn.title = phongToKhungGia ? 'Thu nhỏ khung giá' : 'Phóng to khung giá';
+  btn.classList.toggle('active', phongToKhungGia);
+  btn.style.display = caiDat.rsi ? '' : 'none';
+}
+
+function togglePhongToKhungGia() {
+  phongToKhungGia = !phongToKhungGia;
+  ghiBoNho('phongToKhungGia', phongToKhungGia);
+  try { _applyRsiPaneSize(); } catch (e) {}
+  _applyPhongToBtn();
+  capNhatLegend(duLieuNen.length - 1);
+  capNhatNhanGia();
+}
 
 // Tìm vị trí cây nến theo thời gian (tìm nhị phân cho nhanh)
 function timNen(t) {
@@ -2331,3 +2387,11 @@ batDauPollingVN();
 eaLapLichLamMoi();
 coboLapLich();
 napBieuDo();
+
+// Nút thu gọn watchlist
+document.getElementById('btnToggleWL').onclick = toggleWatchlist;
+_applyWatchlistState();
+
+// Nút phóng to khung giá
+document.getElementById('btnPhongTo').onclick = togglePhongToKhungGia;
+_applyPhongToBtn();

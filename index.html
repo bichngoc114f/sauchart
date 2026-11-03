@@ -41,6 +41,7 @@
       <div class="legend" id="legend"></div>
       <div class="legend legend-rsi" id="legendRsi"></div>
       <div id="chart"></div>
+      <button id="btnPhongTo" class="btn-phong-to" title="Phóng to khung giá">⤢</button>
       <div id="nhanGia" style="display:none;position:absolute;right:0;z-index:10;pointer-events:none">
         <div class="ng-gia"></div>
         <div class="ng-dem"></div>
@@ -57,8 +58,12 @@
     </section>
 
     <!-- Watchlist: bên phải trên máy tính, thành dải ngang trên điện thoại -->
-    <aside class="watchlist">
-      <div class="watchlist-header"><span>Mã</span><span>Giá</span><span>24h</span></div>
+    <aside class="watchlist" id="watchlistPanel">
+      <div class="watchlist-header">
+        <button id="btnToggleWL" class="wl-toggle-btn">Mã <span class="wl-arrow">›</span></button>
+        <span class="wl-hdr-gia">Giá</span>
+        <span class="wl-hdr-24h">24h</span>
+      </div>
       <div id="watchlist"></div>
     </aside>
   </main>
