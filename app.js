@@ -145,14 +145,13 @@ let daHetLichSu = false;  // đã về tới nến đầu tiên
 // Vùng co bó
 let coboBat = docBoNho('coboBat', false);
 let coboVisBat = Object.assign({h4:true,h8:true,h2:true,h12:true,h1:true}, docBoNho('coboVis',{}));
-let coboTabSel = 1;
+let coboTabSel = docBoNho('coboTab', 0);
 let coboComboSel = 0;
 let coboKetQua = {};   // {ma: {h4,h8,h2,h12,h1: [{s,e}], lastH1T}}
 let coboBitmask = [];  // parallel to duLieuNen: số nguyên, bits 1-16 theo COBO_KHUNG
 let coboPrim = null;
 let coboLoading = false;
 let coboTimer = null;
-let coboNamSel = null;
 
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
@@ -1106,7 +1105,8 @@ class CoboPrimitive {
                 let showMask = 0;
                 if (coboComboSel) {
                   showMask = rawMask === coboComboSel ? rawMask : 0;
-                } else if (coboTabSel === 1) {
+                } else if (coboTabSel === 0) {
+                  // Per-frame: chỉ hiện khung đang bật
                   showMask = rawMask & visMask;
                 } else if (coboTabSel === 5) {
                   showMask = activeBits === 5 ? rawMask : 0;
@@ -1126,22 +1126,22 @@ class CoboPrimitive {
                   cw = Math.round(4 * hpr);
                 }
 
-                if (coboTabSel === 1 && !coboComboSel) {
-                  // Tô từng màu riêng (alpha chồng nhau)
+                if (coboTabSel === 0 && !coboComboSel) {
+                  // Per-frame: tô từng màu riêng, không thanh mép
                   for (const k of COBO_KHUNG) {
                     if (!(showMask & k.bit)) continue;
                     ctx.fillStyle = k.mau + '2e';
                     ctx.fillRect(xb, 0, cw, H);
                   }
                 } else {
+                  // Chồng khung: nền xám + thanh màu mép trên
                   ctx.fillStyle = 'rgba(180,180,180,0.13)';
                   ctx.fillRect(xb, 0, cw, H);
-                }
-                // Thanh màu mép trên
-                for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
-                  if (!(showMask & COBO_KHUNG[ki].bit)) continue;
-                  ctx.fillStyle = COBO_KHUNG[ki].mau;
-                  ctx.fillRect(xb, ki * gap, cw, barH);
+                  for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
+                    if (!(showMask & COBO_KHUNG[ki].bit)) continue;
+                    ctx.fillStyle = COBO_KHUNG[ki].mau;
+                    ctx.fillRect(xb, ki * gap, cw, barH);
+                  }
                 }
               }
               ctx.restore();
@@ -1224,15 +1224,32 @@ function coboVeBang() {
     return;
   }
 
+  const totalAll = duLieuNen.length;
+  const fPct = (n, d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
+
+  if (coboTabSel === 0 && !coboComboSel) {
+    // Per-frame: bảng đơn giản — mỗi khung đang bật 1 dòng
+    let html = `<table class="cobo-tbl"><thead><tr>`;
+    html += `<th>Khung</th><th>Nến</th><th>%</th></tr></thead><tbody>`;
+    for (const k of COBO_KHUNG) {
+      if (!coboVisBat[k.id]) continue;
+      let cnt = 0;
+      for (let i = 0; i < coboBitmask.length; i++) {
+        if (coboBitmask[i] & k.bit) cnt++;
+      }
+      html += `<tr><td><span class="cobo-badge" style="color:${k.mau};border-color:${k.mau}">${k.id.toUpperCase()}</span></td>`;
+      html += `<td>${cnt}</td><td>${fPct(cnt, totalAll)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    el.innerHTML = html;
+    return;
+  }
+
+  // Chế độ chồng khung hoặc comboSel
   const minBits = coboTabSel === 5 ? 5 : coboTabSel;
   const counts = new Map();
-  let totalCobo = 0, totalAll = 0;
+  let totalCobo = 0;
   for (let i = 0; i < duLieuNen.length; i++) {
-    if (coboNamSel !== null) {
-      const y = new Date((duLieuNen[i].time - LECH_GIO) * 1000).getUTCFullYear();
-      if (y !== coboNamSel) continue;
-    }
-    totalAll++;
     const mask = coboBitmask[i];
     if (!mask) continue;
     const bits = coboBitCount(mask);
@@ -1243,7 +1260,6 @@ function coboVeBang() {
   }
 
   const rows = [...counts.entries()].sort((a,b) => b[1]-a[1]);
-  const fPct = (n, d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
 
   let html = `<div style="color:#888;font-size:11px;margin:4px 0 6px">`;
   html += `Nến co bó: <b style="color:var(--text)">${totalCobo}</b> / ${totalAll} (${fPct(totalCobo, totalAll)})</div>`;
@@ -1260,7 +1276,6 @@ function coboVeBang() {
     }
     html += `</td><td>${cnt}</td><td>${fPct(cnt, totalAll)}</td></tr>`;
   }
-  // Tổng
   html += `<tr class="cobo-tot"><td>Tổng</td><td>${totalCobo}</td><td>${fPct(totalCobo, totalAll)}</td></tr>`;
   html += `</tbody></table>`;
   el.innerHTML = html;
@@ -1326,46 +1341,27 @@ function khoiDongCoBoPanel() {
 }
 
 function coboCapNhatPanel() {
-  // Hàng 1: nút nhảy năm
-  const namRow = document.getElementById('coboNamRow');
-  if (!namRow) return;
-  const years = [];
-  const startY = 2020, curY = new Date().getUTCFullYear();
-  for (let y = startY; y <= curY; y++) years.push(y);
-
-  namRow.innerHTML = '';
-  const mkBtn = (label, val) => {
-    const b = document.createElement('button');
-    b.className = 'cobo-btn cobo-btn--year' + (coboNamSel === val ? ' active' : '');
-    b.textContent = label;
-    b.onclick = () => { coboNamSel = coboNamSel === val ? null : val; coboCapNhatPanel(); coboVeBang(); _coboNhayNam(val); };
-    return b;
-  };
-  namRow.appendChild(mkBtn('Tất cả', null));
-  years.forEach(y => namRow.appendChild(mkBtn(String(y), y)));
-
-  // Hàng 2: toggle vis
+  // Hàng 1: toggle vis (H4/H8/H2/H12/H1)
   const visRow = document.getElementById('coboVisRow');
-  if (visRow) {
-    visRow.innerHTML = '';
-    COBO_KHUNG.forEach(k => {
-      const b = document.createElement('button');
-      b.className = 'cobo-btn' + (coboVisBat[k.id] ? ' active' : '');
-      b.textContent = k.id.toUpperCase();
-      b.style.borderColor = k.mau;
-      b.style.color = coboVisBat[k.id] ? '#fff' : k.mau;
-      b.style.background = coboVisBat[k.id] ? k.mau : '';
-      b.onclick = () => {
-        coboVisBat[k.id] = !coboVisBat[k.id];
-        ghiBoNho('coboVis', coboVisBat);
-        coboCapNhatPanel();
-        coboCapNhat();
-      };
-      visRow.appendChild(b);
-    });
-  }
+  if (!visRow) return;
+  visRow.innerHTML = '';
+  COBO_KHUNG.forEach(k => {
+    const b = document.createElement('button');
+    b.className = 'cobo-btn' + (coboVisBat[k.id] ? ' active' : '');
+    b.textContent = k.id.toUpperCase();
+    b.style.borderColor = k.mau;
+    b.style.color = coboVisBat[k.id] ? '#fff' : k.mau;
+    b.style.background = coboVisBat[k.id] ? k.mau : '';
+    b.onclick = () => {
+      coboVisBat[k.id] = !coboVisBat[k.id];
+      ghiBoNho('coboVis', coboVisBat);
+      coboCapNhatPanel();
+      coboCapNhat();
+    };
+    visRow.appendChild(b);
+  });
 
-  // Hàng 3: tab chồng khung
+  // Hàng 2: tab chồng khung (bấm lại ô đang chọn → bỏ chọn về 0)
   const tabRow = document.getElementById('coboTabRow');
   if (tabRow) {
     tabRow.innerHTML = '';
@@ -1380,7 +1376,13 @@ function coboCapNhatPanel() {
       const b = document.createElement('button');
       b.className = 'cobo-btn' + (coboTabSel === k ? ' active' : '');
       b.textContent = label;
-      b.onclick = () => { coboTabSel = k; coboComboSel = 0; coboCapNhatPanel(); coboCapNhat(); };
+      b.onclick = () => {
+        coboTabSel = coboTabSel === k ? 0 : k;
+        coboComboSel = 0;
+        ghiBoNho('coboTab', coboTabSel);
+        coboCapNhatPanel();
+        coboCapNhat();
+      };
       tabRow.appendChild(b);
     });
   }
@@ -1388,19 +1390,6 @@ function coboCapNhatPanel() {
   coboVeBang();
 }
 
-function _coboNhayNam(val) {
-  if (!duLieuNen.length) return;
-  if (val === null) {
-    chart.timeScale().setVisibleRange({ from: duLieuNen[0].time, to: duLieuNen[duLieuNen.length-1].time + 86400 });
-    return;
-  }
-  let firstT = null, lastT = null;
-  for (const n of duLieuNen) {
-    const y = new Date((n.time - LECH_GIO) * 1000).getUTCFullYear();
-    if (y === val) { if (firstT === null) firstT = n.time; lastT = n.time; }
-  }
-  if (firstT !== null) chart.timeScale().setVisibleRange({ from: firstT, to: lastT + Math.round(_coboKhungMs()/1000) });
-}
 
 // ---------- 8. NÚT KHUNG GIỜ ----------
 function veNutKhungGio() {
