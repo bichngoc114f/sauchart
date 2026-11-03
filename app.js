@@ -146,7 +146,7 @@ let daHetLichSu = false;  // đã về tới nến đầu tiên
 let coboBat = docBoNho('coboBat', false);
 let coboVisBat = Object.assign({h4:true,h8:true,h2:true,h12:true,h1:true}, docBoNho('coboVis',{}));
 let coboTabSel = docBoNho('coboTab', 0);
-let coboNguong = docBoNho('coboNguong', 3.5);
+let coboNguong = docBoNho('coboNguong_v2', 3);
 let coboComboSel = 0;
 let coboKetQua = {};   // {ma: {h4,h8,h2,h12,h1: {widths,ts,durMs,zones}, lastH1T}}
 let coboBitmask = [];  // parallel to duLieuNen: số nguyên, bits 1-16 theo COBO_KHUNG
@@ -1239,7 +1239,7 @@ function coboVe() {
 
 function coboCapNhatNguong(nguong) {
   coboNguong = nguong;
-  ghiBoNho('coboNguong', nguong);
+  ghiBoNho('coboNguong_v2', nguong);
   const ma = maHienTai;
   if (!coboKetQua[ma]) return;
   for (const k of COBO_KHUNG) {
