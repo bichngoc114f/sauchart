@@ -1025,22 +1025,24 @@ function _gopH2(h1bars) {
   return [...m.values()].filter(e => cnt.get(e.t) >= 2).sort((a,b) => a.t - b.t);
 }
 
-// Tính trước mảng độ rộng min cho từng nến (NaN khi chưa đủ 987 nến)
+// Tính trước mảng độ rộng: K đường SMA gần giá đóng nhất (NaN khi chưa đủ SMA987)
 function _coboCalcWidths(bars, kInfo) {
   const { smas: periods, soDuong: K, ms: durMs } = kInfo;
   const maxP = periods[periods.length - 1]; // 987
   const closes = bars.map(b => b.c);
   const smaArrays = periods.map(p => _sma(closes, p));
-  const nGroups = periods.length - K + 1;
   const widths = new Float32Array(bars.length).fill(NaN);
   for (let i = maxP - 1; i < bars.length; i++) {
-    const vals = smaArrays.map(s => s[i]).sort((a, b) => a - b);
-    let minW = Infinity;
-    for (let j = 0; j < nGroups; j++) {
-      const w = (vals[j + K - 1] - vals[j]) / closes[i] * 100;
-      if (w < minW) minW = w;
+    const close = closes[i];
+    // Sắp 8 SMA theo |SMA − close| tăng dần, lấy K đường gần nhất
+    const vals = smaArrays.map(s => s[i]);
+    vals.sort((a, b) => Math.abs(a - close) - Math.abs(b - close));
+    let lo = vals[0], hi = vals[0];
+    for (let j = 1; j < K; j++) {
+      if (vals[j] < lo) lo = vals[j];
+      if (vals[j] > hi) hi = vals[j];
     }
-    widths[i] = minW;
+    widths[i] = (hi - lo) / close * 100;
   }
   return { widths, ts: bars.map(b => b.t), durMs };
 }
