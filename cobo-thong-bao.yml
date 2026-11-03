@@ -1,0 +1,39 @@
+# Thông báo BTC vào vùng co bó mới (H12, H8, H4, H2, H1) qua Telegram — chạy mỗi giờ.
+name: Co bo thong bao Telegram
+
+on:
+  schedule:
+    - cron: '3 * * * *'      # phút thứ 3 mỗi giờ (ngay sau khi nến H1 đóng)
+  workflow_dispatch:          # nút "Run workflow": gửi bảng trạng thái hiện tại
+
+concurrency:
+  group: cobo-thong-bao
+
+jobs:
+  thong-bao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Lấy trạng thái lần chạy trước
+        uses: actions/cache/restore@v4
+        with:
+          path: .cobo-state
+          key: cobo-state-${{ github.run_id }}
+          restore-keys: cobo-state-
+      - name: Kiểm tra vùng co bó và gửi Telegram
+        run: node cobo-thong-bao.cjs
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          THU: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Lưu trạng thái cho lần sau
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .cobo-state
+          key: cobo-state-${{ github.run_id }}
