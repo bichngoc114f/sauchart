@@ -143,10 +143,10 @@ let dangTaiThem = false;  // đang tải thêm nến cũ
 let daHetLichSu = false;  // đã về tới nến đầu tiên
 
 // Vùng co bó
-let coboBat = docBoNho('coboBat', false);
-let coboVisBat = Object.assign({h4:true,h8:true,h2:true,h12:true,h1:true}, docBoNho('coboVis',{}));
-let coboTabSel = docBoNho('coboTab', 0);
-let coboNguong = docBoNho('coboNguong_v2', 3);
+let coboBat = docBoNho('coboBat_v3', false);
+let coboVisBat = Object.assign({h4:false,h8:false,h2:false,h12:false,h1:false}, docBoNho('coboVis_v3',{}));
+let coboTabSel = docBoNho('coboTab_v3', 1);
+let coboNguong = docBoNho('coboNguong_v3', 3);
 let coboComboSel = 0;
 let coboKetQua = {};   // {ma: {h4,h8,h2,h12,h1: {widths,ts,durMs,zones}, lastH1T}}
 let coboBitmask = [];  // parallel to duLieuNen: số nguyên, bits 1-16 theo COBO_KHUNG
@@ -1240,7 +1240,7 @@ function coboVe() {
 
 function coboCapNhatNguong(nguong) {
   coboNguong = nguong;
-  ghiBoNho('coboNguong_v2', nguong);
+  ghiBoNho('coboNguong_v3', nguong);
   const ma = maHienTai;
   if (!coboKetQua[ma]) return;
   for (const k of COBO_KHUNG) {
@@ -1361,7 +1361,7 @@ function khoiDongCoBoPanel() {
     const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
     if (isVN) return;
     coboBat = !coboBat;
-    ghiBoNho('coboBat', coboBat);
+    ghiBoNho('coboBat_v3', coboBat);
     veNutCoBo();
     if (coboBat) {
       panel.hidden = false;
@@ -1407,7 +1407,7 @@ function coboCapNhatPanel() {
     b.style.background = coboVisBat[k.id] ? k.mau : '';
     b.onclick = () => {
       coboVisBat[k.id] = !coboVisBat[k.id];
-      ghiBoNho('coboVis', coboVisBat);
+      ghiBoNho('coboVis_v3', coboVisBat);
       coboCapNhatPanel();
       coboCapNhat();
     };
@@ -1432,7 +1432,7 @@ function coboCapNhatPanel() {
       b.onclick = () => {
         coboTabSel = coboTabSel === k ? 0 : k;
         coboComboSel = 0;
-        ghiBoNho('coboTab', coboTabSel);
+        ghiBoNho('coboTab_v3', coboTabSel);
         coboCapNhatPanel();
         coboCapNhat();
       };
