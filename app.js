@@ -64,13 +64,13 @@ const KHUNG_GIO_VN = [
 
 const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
 
-// Vùng co bó: 5 khung, mỗi khung một màu và tập SMA riêng
+// Vùng co bó: 5 khung, cùng 8 SMA, soDuong (K) khác nhau
 const COBO_KHUNG = [
-  { id:'h12', ms:43200000,  smas:[34,55,89,144],                 condN:4, mau:'#3cc4d6', bit:8  },
-  { id:'h8',  ms:28800000,  smas:[34,55,89,144,233,377],         condN:5, mau:'#9085e9', bit:2  },
-  { id:'h4',  ms:14400000,  smas:[34,55,89,144,233,377],         condN:6, mau:'#e66767', bit:1  },
-  { id:'h2',  ms:7200000,   smas:[34,55,89,144,233,377,610],     condN:7, mau:'#f0a030', bit:4  },
-  { id:'h1',  ms:3600000,   smas:[34,55,89,144,233,377,610,987], condN:8, mau:'#a8cc3c', bit:16 },
+  { id:'h12', ms:43200000,  smas:[34,55,89,144,233,377,610,987], soDuong:4, mau:'#3cc4d6', bit:8  },
+  { id:'h8',  ms:28800000,  smas:[34,55,89,144,233,377,610,987], soDuong:5, mau:'#9085e9', bit:2  },
+  { id:'h4',  ms:14400000,  smas:[34,55,89,144,233,377,610,987], soDuong:6, mau:'#e66767', bit:1  },
+  { id:'h2',  ms:7200000,   smas:[34,55,89,144,233,377,610,987], soDuong:7, mau:'#f0a030', bit:4  },
+  { id:'h1',  ms:3600000,   smas:[34,55,89,144,233,377,610,987], soDuong:8, mau:'#a8cc3c', bit:16 },
 ];
 const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
 
@@ -1025,10 +1025,11 @@ function _gopH2(h1bars) {
 }
 
 function _coboZones(bars, kInfo) {
-  const { smas: periods, condN, ms: durMs } = kInfo;
-  const maxP = periods[periods.length - 1];
+  const { smas: periods, soDuong: K, ms: durMs } = kInfo;
+  const maxP = periods[periods.length - 1]; // 987 — chờ đủ nến
   const closes = bars.map(b => b.c);
   const smaArrays = periods.map(p => _sma(closes, p));
+  const nGroups = periods.length - K + 1; // số nhóm K đường liền kề
   const zones = [];
   let zStart = null;
   for (let i = 0; i < bars.length; i++) {
@@ -1036,9 +1037,13 @@ function _coboZones(bars, kInfo) {
       if (zStart !== null) { zones.push({s: zStart, e: bars[i].t}); zStart = null; }
       continue;
     }
-    const vals = smaArrays.map(s => s[i]).sort((a,b) => a-b);
-    const ratio = (vals[condN-1] - vals[0]) / closes[i] * 100;
-    if (ratio <= 5) {
+    const vals = smaArrays.map(s => s[i]).sort((a, b) => a - b);
+    let minW = Infinity;
+    for (let j = 0; j < nGroups; j++) {
+      const w = (vals[j + K - 1] - vals[j]) / closes[i] * 100;
+      if (w < minW) minW = w;
+    }
+    if (minW <= 5) {
       if (zStart === null) zStart = bars[i].t;
     } else {
       if (zStart !== null) { zones.push({s: zStart, e: bars[i].t}); zStart = null; }
