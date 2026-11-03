@@ -72,6 +72,8 @@ const COBO_KHUNG = [
   { id:'h2',  ms:7200000,   smas:[34,55,89,144,233,377,610,987], soDuong:7, mau:'#f0a030', bit:4  },
   { id:'h1',  ms:3600000,   smas:[34,55,89,144,233,377,610,987], soDuong:8, mau:'#a8cc3c', bit:16 },
 ];
+// Điều kiện (b): khoảng cách giá → SMA gần nhất ≤ 3% (cố định)
+const COBO_KC_GIA = 3;
 const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
 
 const REST_URLS = [
@@ -1082,13 +1084,14 @@ function _gopH2(h1bars) {
   return [...m.values()].filter(e => cnt.get(e.t) >= 2).sort((a,b) => a.t - b.t);
 }
 
-// Tính trước mảng độ rộng: K đường SMA gần giá đóng nhất (NaN khi chưa đủ SMA987)
+// Tính trước mảng độ rộng + khoảng cách giá→SMA gần nhất (NaN khi chưa đủ SMA987)
 function _coboCalcWidths(bars, kInfo) {
   const { smas: periods, soDuong: K, ms: durMs } = kInfo;
   const maxP = periods[periods.length - 1]; // 987
   const closes = bars.map(b => b.c);
   const smaArrays = periods.map(p => _sma(closes, p));
   const widths = new Float32Array(bars.length).fill(NaN);
+  const minDists = new Float32Array(bars.length).fill(NaN);
   for (let i = maxP - 1; i < bars.length; i++) {
     const close = closes[i];
     // Sắp 8 SMA theo |SMA − close| tăng dần, lấy K đường gần nhất
@@ -1100,12 +1103,15 @@ function _coboCalcWidths(bars, kInfo) {
       if (vals[j] > hi) hi = vals[j];
     }
     widths[i] = (hi - lo) / close * 100;
+    // vals đã sắp tăng dần theo |SMA−close| → vals[0] là SMA gần nhất
+    minDists[i] = Math.abs(vals[0] - close) / close * 100;
   }
-  return { widths, ts: bars.map(b => b.t), durMs };
+  return { widths, minDists, ts: bars.map(b => b.t), durMs };
 }
 
 // Dựng danh sách vùng từ mảng độ rộng + ngưỡng (tức thì, không tính lại SMA)
-function _coboFromWidths({ widths, ts, durMs }, nguong) {
+// Điều kiện (a): widths[i] ≤ nguong  VÀ  (b): minDists[i] ≤ COBO_KC_GIA
+function _coboFromWidths({ widths, minDists, ts, durMs }, nguong) {
   const zones = [];
   let zStart = null;
   for (let i = 0; i < widths.length; i++) {
@@ -1114,7 +1120,7 @@ function _coboFromWidths({ widths, ts, durMs }, nguong) {
       if (zStart !== null) { zones.push({s: zStart, e: ts[i]}); zStart = null; }
       continue;
     }
-    if (w <= nguong) {
+    if (w <= nguong && minDists[i] <= COBO_KC_GIA) {
       if (zStart === null) zStart = ts[i];
     } else {
       if (zStart !== null) { zones.push({s: zStart, e: ts[i]}); zStart = null; }
