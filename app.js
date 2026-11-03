@@ -63,6 +63,15 @@ const KHUNG_GIO_VN = [
 ];
 
 const CUM_MA_PERIODS = [34, 55, 89, 144, 233, 377, 610, 987];
+
+// Vùng co bó: 5 khung, mỗi khung một màu và tập SMA riêng
+const COBO_KHUNG = [
+  { id:'h4',  ms:14400000,  smas:[34,55,89,144,233,377],         condN:6, mau:'#e66767', bit:1  },
+  { id:'h8',  ms:28800000,  smas:[34,55,89,144,233,377],         condN:5, mau:'#9085e9', bit:2  },
+  { id:'h2',  ms:7200000,   smas:[34,55,89,144,233,377,610],     condN:7, mau:'#f0a030', bit:4  },
+  { id:'h12', ms:43200000,  smas:[34,55,89,144],                 condN:4, mau:'#3cc4d6', bit:8  },
+  { id:'h1',  ms:3600000,   smas:[34,55,89,144,233,377,610,987], condN:8, mau:'#a8cc3c', bit:16 },
+];
 const MAU_CUM_MA = ['#f44336', '#ff9800', '#ffeb3b', '#4caf50', '#00bcd4', '#2196f3', '#9c27b0', '#e91e63'];
 
 const REST_URLS = [
@@ -132,6 +141,18 @@ let wsNen = null;
 let phien = 0;         // chống lỗi khi bấm đổi mã/khung liên tục
 let dangTaiThem = false;  // đang tải thêm nến cũ
 let daHetLichSu = false;  // đã về tới nến đầu tiên
+
+// Vùng co bó
+let coboBat = docBoNho('coboBat', false);
+let coboVisBat = Object.assign({h4:true,h8:true,h2:true,h12:true,h1:true}, docBoNho('coboVis',{}));
+let coboTabSel = 1;
+let coboComboSel = 0;
+let coboKetQua = {};   // {ma: {h4,h8,h2,h12,h1: [{s,e}], lastH1T}}
+let coboBitmask = [];  // parallel to duLieuNen: số nguyên, bits 1-16 theo COBO_KHUNG
+let coboPrim = null;
+let coboLoading = false;
+let coboTimer = null;
+let coboNamSel = null;
 
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
@@ -287,6 +308,7 @@ function veToanBo() {
   tinhChiBao();
   nenSeries.setData(duLieuNen);
   S.forEach((x) => x.series.setData(duLieuNen.map((_, i) => x.lay(i))));
+  coboCapNhat();
 }
 
 // Chỉ cập nhật cây nến cuối (khi giá real-time nhảy)
@@ -297,6 +319,7 @@ function veNenCuoi() {
   S.forEach((x) => x.series.update(x.lay(i)));
   capNhatNhanGia();
   eaCapNhatPnl();
+  coboCapNhat();
 }
 
 // ---------- 5. LẤY DỮ LIỆU ----------
@@ -877,6 +900,17 @@ async function napBieuDo() {
     else { datTrangThai('KBS · dữ liệu VN', 'ok'); }
     batDauNhanGia();
     veNutEA();
+    veNutCoBo();
+    if (coboBat && !infoVN) {
+      if (!coboKetQua[maHienTai]) {
+        coboTinh(maHienTai).then(() => { coboVe(); coboCapNhat(); coboCapNhatPanel(); });
+      } else {
+        coboVe();
+        coboCapNhat();
+      }
+    } else {
+      coboVe(); // detach nếu là VN hoặc tắt
+    }
     if (caiDatEA.on && eaCoHoTro()) {
       if (eaKetQua[maHienTai]) veEA(); else chayEA();
     } else {
@@ -948,6 +982,7 @@ async function taiThemNenCu() {
     const range = chart.timeScale().getVisibleLogicalRange();
     duLieuNen = [...them, ...duLieuNen];
     veToanBo();
+    coboCapNhat();
 
     // Dịch range đúng số nến vừa chèn để biểu đồ không nhảy
     if (range) {
@@ -964,6 +999,407 @@ async function taiThemNenCu() {
   } finally {
     dangTaiThem = false;
   }
+}
+
+// ---------- 7.5. VÙNG CO BÓ ----------
+
+function _sma(closes, period) {
+  const out = new Float64Array(closes.length);
+  let sum = 0;
+  for (let i = 0; i < closes.length; i++) {
+    sum += closes[i];
+    if (i >= period) sum -= closes[i - period];
+    if (i >= period - 1) out[i] = sum / period;
+  }
+  return out;
+}
+
+function _gopH2(h1bars) {
+  const m = new Map();
+  for (const b of h1bars) {
+    const k = Math.floor(b.t / 7200000) * 7200000;
+    if (!m.has(k)) m.set(k, {t:k, o:b.o, h:b.h, l:b.l, c:b.c});
+    else { const e = m.get(k); e.h = Math.max(e.h, b.h); e.l = Math.min(e.l, b.l); e.c = b.c; }
+  }
+  return [...m.values()].sort((a,b) => a.t - b.t);
+}
+
+function _coboZones(bars, kInfo) {
+  const { smas: periods, condN, ms: durMs } = kInfo;
+  const maxP = periods[periods.length - 1];
+  const closes = bars.map(b => b.c);
+  const smaArrays = periods.map(p => _sma(closes, p));
+  const zones = [];
+  let zStart = null;
+  for (let i = 0; i < bars.length; i++) {
+    if (i < maxP - 1) {
+      if (zStart !== null) { zones.push({s: zStart, e: bars[i].t}); zStart = null; }
+      continue;
+    }
+    const vals = smaArrays.map(s => s[i]).sort((a,b) => a-b);
+    const ratio = (vals[condN-1] - vals[0]) / closes[i] * 100;
+    if (ratio <= 5) {
+      if (zStart === null) zStart = bars[i].t;
+    } else {
+      if (zStart !== null) { zones.push({s: zStart, e: bars[i].t}); zStart = null; }
+    }
+  }
+  if (zStart !== null && bars.length) zones.push({s: zStart, e: bars[bars.length-1].t + durMs});
+  return zones; // [{s: ms UTC, e: ms UTC}] sorted ascending
+}
+
+function _coboOverlap(zones, startMs, endMs) {
+  // Binary search: find first zone with e > startMs
+  let lo = 0, hi = zones.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (zones[mid].e <= startMs) lo = mid + 1; else hi = mid - 1;
+  }
+  return lo < zones.length && zones[lo].s < endMs;
+}
+
+function coboBitCount(mask) {
+  let n = 0; let m = mask;
+  while (m) { n += m & 1; m >>= 1; }
+  return n;
+}
+
+function _coboKhungMs() {
+  const map = {'15m':900000,'30m':1800000,'1h':3600000,'2h':7200000,'4h':14400000,
+    '8h':28800000,'12h':43200000,'1d':86400000,'2d':172800000,'3d':259200000,
+    '1w':604800000,'2w':1209600000};
+  return map[khungHienTai] || 2635200000; // 1M ≈ 30.5 ngày
+}
+
+class CoboPrimitive {
+  constructor() { this._series = null; this._chart = null; }
+  attached(p) { this._series = p.series; this._chart = p.chart; }
+  detached() { this._series = null; this._chart = null; }
+  updateAllViews() {}
+
+  paneViews() {
+    const self = this;
+    return [{
+      renderer() {
+        return {
+          draw(target) {
+            if (!self._chart || !coboBat || !coboBitmask.length) return;
+            target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
+              const ts = self._chart.timeScale();
+              const H = bitmapSize.height;
+              const barH = Math.max(1, Math.round(3 * vpr));
+              const gap = Math.round(4 * vpr);
+              // visible range để bỏ qua nến ngoài viewport
+              const lr = ts.getVisibleLogicalRange();
+              if (!lr) return;
+              const iFrom = Math.max(0, Math.floor(lr.from));
+              const iTo = Math.min(duLieuNen.length - 1, Math.ceil(lr.to));
+              const visMask = COBO_KHUNG.reduce((a, k) => coboVisBat[k.id] ? a|k.bit : a, 0);
+
+              ctx.save();
+              for (let i = iFrom; i <= iTo; i++) {
+                const rawMask = coboBitmask[i] || 0;
+                if (!rawMask) continue;
+                const activeBits = coboBitCount(rawMask);
+
+                // Tính showMask theo tab + comboSel
+                let showMask = 0;
+                if (coboComboSel) {
+                  showMask = rawMask === coboComboSel ? rawMask : 0;
+                } else if (coboTabSel === 1) {
+                  showMask = rawMask & visMask;
+                } else if (coboTabSel === 5) {
+                  showMask = activeBits === 5 ? rawMask : 0;
+                } else {
+                  showMask = activeBits >= coboTabSel ? rawMask : 0;
+                }
+                if (!showMask) continue;
+
+                const x = ts.timeToCoordinate(duLieuNen[i].time);
+                if (x == null) continue;
+                const xb = Math.round(x * hpr);
+                let cw;
+                if (i + 1 <= iTo) {
+                  const xn = ts.timeToCoordinate(duLieuNen[i+1].time);
+                  cw = xn != null ? Math.max(1, Math.round((xn - x) * hpr)) : Math.round(4 * hpr);
+                } else {
+                  cw = Math.round(4 * hpr);
+                }
+
+                if (coboTabSel === 1 && !coboComboSel) {
+                  // Tô từng màu riêng (alpha chồng nhau)
+                  for (const k of COBO_KHUNG) {
+                    if (!(showMask & k.bit)) continue;
+                    ctx.fillStyle = k.mau + '2e';
+                    ctx.fillRect(xb, 0, cw, H);
+                  }
+                } else {
+                  ctx.fillStyle = 'rgba(180,180,180,0.13)';
+                  ctx.fillRect(xb, 0, cw, H);
+                }
+                // Thanh màu mép trên
+                for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
+                  if (!(showMask & COBO_KHUNG[ki].bit)) continue;
+                  ctx.fillStyle = COBO_KHUNG[ki].mau;
+                  ctx.fillRect(xb, ki * gap, cw, barH);
+                }
+              }
+              ctx.restore();
+            });
+          },
+        };
+      },
+    }];
+  }
+}
+
+async function coboTinh(ma) {
+  if (coboLoading) return;
+  coboLoading = true;
+  datTrangThai('Đang tính vùng co bó…');
+  try {
+    const TU = Date.UTC(2019, 6, 1);
+    const [h1bars, h4bars, h8bars, h12bars] = await Promise.all([
+      L5Data.layKhung(ma, '1h', TU),
+      L5Data.layKhung(ma, '4h', TU),
+      L5Data.layKhung(ma, '8h', TU),
+      L5Data.layKhung(ma, '12h', TU),
+    ]);
+    const h2bars = _gopH2(h1bars);
+    coboKetQua[ma] = {
+      h4:  _coboZones(h4bars,  COBO_KHUNG[0]),
+      h8:  _coboZones(h8bars,  COBO_KHUNG[1]),
+      h2:  _coboZones(h2bars,  COBO_KHUNG[2]),
+      h12: _coboZones(h12bars, COBO_KHUNG[3]),
+      h1:  _coboZones(h1bars,  COBO_KHUNG[4]),
+      lastH1T: h1bars.length ? h1bars[h1bars.length-1].t : 0,
+    };
+    datTrangThai('Real-time', 'ok');
+  } catch (e) {
+    datTrangThai('Lỗi vùng co bó: ' + e.message, 'err');
+  } finally {
+    coboLoading = false;
+  }
+}
+
+function coboTinhBitmask() {
+  coboBitmask = new Array(duLieuNen.length).fill(0);
+  if (!coboBat || !coboKetQua[maHienTai] || !duLieuNen.length) return;
+  if (DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
+  const kq = coboKetQua[maHienTai];
+  const khungMs = _coboKhungMs();
+  for (let i = 0; i < duLieuNen.length; i++) {
+    const nenUtcMs = (duLieuNen[i].time - LECH_GIO) * 1000;
+    const nenEndMs = (i+1 < duLieuNen.length)
+      ? (duLieuNen[i+1].time - LECH_GIO) * 1000
+      : nenUtcMs + khungMs;
+    let mask = 0;
+    for (const k of COBO_KHUNG) {
+      if (!kq[k.id]?.length) continue;
+      if (_coboOverlap(kq[k.id], nenUtcMs, nenEndMs)) mask |= k.bit;
+    }
+    coboBitmask[i] = mask;
+  }
+}
+
+function coboVe() {
+  if (coboPrim) { try { nenSeries.detachPrimitive(coboPrim); } catch(e){} coboPrim = null; }
+  if (!coboBat || DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
+  coboPrim = new CoboPrimitive();
+  nenSeries.attachPrimitive(coboPrim);
+}
+
+function coboCapNhat() {
+  coboTinhBitmask();
+  if (coboPrim) try { coboPrim._series?.requestUpdate?.() || nenSeries.update(duLieuNen[duLieuNen.length-1]); } catch(e){}
+  coboVeBang();
+}
+
+function coboVeBang() {
+  const el = document.getElementById('coboBang');
+  if (!el) return;
+  const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
+  if (isVN || !coboBat || !coboBitmask.length || !coboKetQua[maHienTai]) {
+    el.innerHTML = '<div style="color:#888;font-size:12px;padding:4px 0">Chưa có dữ liệu</div>';
+    return;
+  }
+
+  const minBits = coboTabSel === 5 ? 5 : coboTabSel;
+  const counts = new Map();
+  let totalCobo = 0, totalAll = 0;
+  for (let i = 0; i < duLieuNen.length; i++) {
+    if (coboNamSel !== null) {
+      const y = new Date((duLieuNen[i].time - LECH_GIO) * 1000).getUTCFullYear();
+      if (y !== coboNamSel) continue;
+    }
+    totalAll++;
+    const mask = coboBitmask[i];
+    if (!mask) continue;
+    const bits = coboBitCount(mask);
+    const ok = coboTabSel === 5 ? bits === 5 : bits >= minBits;
+    if (!ok) continue;
+    counts.set(mask, (counts.get(mask) || 0) + 1);
+    totalCobo++;
+  }
+
+  const rows = [...counts.entries()].sort((a,b) => b[1]-a[1]);
+  const fPct = (n, d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
+
+  let html = `<div style="color:#888;font-size:11px;margin:4px 0 6px">`;
+  html += `Nến co bó: <b style="color:var(--text)">${totalCobo}</b> / ${totalAll} (${fPct(totalCobo, totalAll)})</div>`;
+  html += `<table class="cobo-tbl"><thead><tr>`;
+  html += `<th>Tổ hợp</th><th>Nến</th><th>%</th></tr></thead><tbody>`;
+
+  for (const [mask, cnt] of rows) {
+    const isSel = coboComboSel === mask;
+    html += `<tr class="cobo-combo-row${isSel?' sel':''}" data-mask="${mask}">`;
+    html += `<td>`;
+    for (const k of COBO_KHUNG) {
+      if (mask & k.bit)
+        html += `<span class="cobo-badge" style="color:${k.mau};border-color:${k.mau}">${k.id.toUpperCase()}</span>`;
+    }
+    html += `</td><td>${cnt}</td><td>${fPct(cnt, totalAll)}</td></tr>`;
+  }
+  // Tổng
+  html += `<tr class="cobo-tot"><td>Tổng</td><td>${totalCobo}</td><td>${fPct(totalCobo, totalAll)}</td></tr>`;
+  html += `</tbody></table>`;
+  el.innerHTML = html;
+
+  el.querySelectorAll('.cobo-combo-row').forEach(row => {
+    row.onclick = () => {
+      const mask = parseInt(row.dataset.mask);
+      coboComboSel = coboComboSel === mask ? 0 : mask;
+      coboCapNhat();
+    };
+  });
+}
+
+function veNutCoBo() {
+  const btn = document.getElementById('btnCoBo');
+  if (!btn) return;
+  const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
+  btn.disabled = isVN;
+  btn.style.opacity = isVN ? '0.4' : '';
+  btn.title = isVN ? 'Chỉ hỗ trợ crypto' : '';
+  btn.classList.toggle('active', coboBat && !isVN);
+}
+
+function coboLapLich() {
+  if (coboTimer) clearInterval(coboTimer);
+  coboTimer = setInterval(async () => {
+    if (!coboBat || coboLoading) return;
+    if (DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
+    const ma = maHienTai;
+    const prevH1T = coboKetQua[ma]?.lastH1T || 0;
+    await coboTinh(ma);
+    if (coboKetQua[ma]?.lastH1T !== prevH1T) coboCapNhat();
+  }, 5 * 60 * 1000);
+}
+
+function khoiDongCoBoPanel() {
+  const panel = document.getElementById('panelCoBo');
+  const btn = document.getElementById('btnCoBo');
+  if (!panel || !btn) return;
+
+  btn.onclick = async () => {
+    const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
+    if (isVN) return;
+    coboBat = !coboBat;
+    ghiBoNho('coboBat', coboBat);
+    veNutCoBo();
+    if (coboBat) {
+      panel.hidden = false;
+      if (!coboKetQua[maHienTai]) {
+        await coboTinh(maHienTai);
+      }
+      coboVe();
+      coboCapNhat();
+      coboCapNhatPanel();
+    } else {
+      panel.hidden = true;
+      coboVe(); // detach primitive
+    }
+  };
+
+  document.getElementById('btnDongCoBo').onclick = () => { panel.hidden = true; };
+  panel.onclick = e => { if (e.target === panel) panel.hidden = true; };
+}
+
+function coboCapNhatPanel() {
+  // Hàng 1: nút nhảy năm
+  const namRow = document.getElementById('coboNamRow');
+  if (!namRow) return;
+  const years = [];
+  const startY = 2020, curY = new Date().getUTCFullYear();
+  for (let y = startY; y <= curY; y++) years.push(y);
+
+  namRow.innerHTML = '';
+  const mkBtn = (label, val) => {
+    const b = document.createElement('button');
+    b.className = 'cobo-btn cobo-btn--year' + (coboNamSel === val ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => { coboNamSel = coboNamSel === val ? null : val; coboCapNhatPanel(); coboVeBang(); _coboNhayNam(val); };
+    return b;
+  };
+  namRow.appendChild(mkBtn('Tất cả', null));
+  years.forEach(y => namRow.appendChild(mkBtn(String(y), y)));
+
+  // Hàng 2: toggle vis
+  const visRow = document.getElementById('coboVisRow');
+  if (visRow) {
+    visRow.innerHTML = '';
+    COBO_KHUNG.forEach(k => {
+      const b = document.createElement('button');
+      b.className = 'cobo-btn' + (coboVisBat[k.id] ? ' active' : '');
+      b.textContent = k.id.toUpperCase();
+      b.style.borderColor = k.mau;
+      b.style.color = coboVisBat[k.id] ? '#fff' : k.mau;
+      b.style.background = coboVisBat[k.id] ? k.mau : '';
+      b.onclick = () => {
+        coboVisBat[k.id] = !coboVisBat[k.id];
+        ghiBoNho('coboVis', coboVisBat);
+        coboCapNhatPanel();
+        coboCapNhat();
+      };
+      visRow.appendChild(b);
+    });
+  }
+
+  // Hàng 3: tab chồng khung
+  const tabRow = document.getElementById('coboTabRow');
+  if (tabRow) {
+    tabRow.innerHTML = '';
+    const tabs = [
+      [1, 'Có màu (≥1)'],
+      [2, '2+ màu'],
+      [3, '3+ màu'],
+      [4, '4+ màu'],
+      [5, 'Cả 5 màu'],
+    ];
+    tabs.forEach(([k, label]) => {
+      const b = document.createElement('button');
+      b.className = 'cobo-btn' + (coboTabSel === k ? ' active' : '');
+      b.textContent = label;
+      b.onclick = () => { coboTabSel = k; coboComboSel = 0; coboCapNhatPanel(); coboCapNhat(); };
+      tabRow.appendChild(b);
+    });
+  }
+
+  coboVeBang();
+}
+
+function _coboNhayNam(val) {
+  if (!duLieuNen.length) return;
+  if (val === null) {
+    chart.timeScale().setVisibleRange({ from: duLieuNen[0].time, to: duLieuNen[duLieuNen.length-1].time + 86400 });
+    return;
+  }
+  let firstT = null, lastT = null;
+  for (const n of duLieuNen) {
+    const y = new Date((n.time - LECH_GIO) * 1000).getUTCFullYear();
+    if (y === val) { if (firstT === null) firstT = n.time; lastT = n.time; }
+  }
+  if (firstT !== null) chart.timeScale().setVisibleRange({ from: firstT, to: lastT + Math.round(_coboKhungMs()/1000) });
 }
 
 // ---------- 8. NÚT KHUNG GIỜ ----------
@@ -1839,8 +2275,10 @@ veNutKhungGio();
 veWatchlist();
 veBangCaiDat();
 khoiDongEAPanel();
+khoiDongCoBoPanel();
 taoSeries();
 moKetNoiWatchlist();
 batDauPollingVN();
 eaLapLichLamMoi();
+coboLapLich();
 napBieuDo();

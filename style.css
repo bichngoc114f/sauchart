@@ -292,6 +292,32 @@ button { font-family: inherit; }
 .panel-dong input { width: 18px; height: 18px; accent-color: var(--accent); }
 .panel-dong i { width: 14px; height: 4px; border-radius: 2px; flex: none; }
 
+/* ===== Vùng co bó ===== */
+.panel-box--cobo { max-width: 480px; }
+.cobo-row { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 14px 8px; }
+.cobo-btn {
+  font: inherit; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 10px; background: transparent; color: var(--text);
+  transition: background 0.1s;
+}
+.cobo-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.cobo-btn:hover:not(.active) { background: rgba(255,255,255,0.07); }
+.cobo-btn--year { font-size: 12px; }
+.cobo-combo-row { cursor: pointer; }
+.cobo-combo-row:hover td { background: rgba(255,255,255,0.05); }
+.cobo-combo-row.sel td { background: rgba(255,255,255,0.10); font-weight: 600; }
+.cobo-badge {
+  display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  border: 1px solid; margin-right: 2px; line-height: 1.4;
+}
+.cobo-tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+.cobo-tbl th { color: var(--muted); font-weight: normal; text-align: right; padding: 3px 8px 3px 4px; font-size: 11px; }
+.cobo-tbl th:first-child { text-align: left; }
+.cobo-tbl td { padding: 3px 8px 3px 4px; text-align: right; border-top: 1px solid var(--border); }
+.cobo-tbl td:first-child { text-align: left; }
+.cobo-tbl tr.cobo-tot td { font-weight: 700; border-top: 2px solid var(--border); }
+
 /* ===== Điện thoại / iPad dọc (màn hình hẹp) ===== */
 @media (max-width: 820px) {
   .toolbar { flex-wrap: wrap; gap: 6px 10px; padding: 6px 10px; }

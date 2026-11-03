@@ -31,6 +31,7 @@
     <div class="timeframes" id="timeframes"></div>
     <button class="icon-btn" id="btnCaiDat">⚙︎ Chỉ báo</button>
     <button class="icon-btn" id="btnEA">⚡ EA</button>
+    <button class="icon-btn" id="btnCoBo">▦ Co bó</button>
     <div class="status" id="status"><span class="dot">●</span><span class="status-text">Đang kết nối...</span></div>
   </header>
 
@@ -106,6 +107,25 @@
         <label class="panel-dong"><input type="checkbox" id="eaShowBTS"><span>Bảng trạng thái</span></label>
         <label class="panel-dong"><input type="checkbox" id="eaShowDS"><span>Danh sách lệnh</span></label>
         <div id="eaVNNote" class="ea-vn-note" style="display:none">Chưa có EA cho chứng khoán</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bảng Vùng Co bó -->
+  <div class="panel" id="panelCoBo" hidden>
+    <div class="panel-box panel-box--cobo">
+      <div class="panel-head">
+        <span>▦ Vùng co bó</span>
+        <button class="icon-btn" id="btnDongCoBo">✕</button>
+      </div>
+      <div id="coboPanelBody">
+        <div class="panel-nhom">Khoảng thời gian</div>
+        <div id="coboNamRow" class="cobo-row"></div>
+        <div class="panel-nhom">Hiển thị khung (Tab 1)</div>
+        <div id="coboVisRow" class="cobo-row"></div>
+        <div class="panel-nhom">Phân tích chồng khung</div>
+        <div id="coboTabRow" class="cobo-row"></div>
+        <div style="padding:0 14px 4px" id="coboBang"></div>
       </div>
     </div>
   </div>
