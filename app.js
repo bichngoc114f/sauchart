@@ -155,6 +155,13 @@ let coboBitmask = [];  // parallel to duLieuNen: số nguyên, bits 1-16 theo CO
 let coboPrim = null;
 let coboLoading = false;
 let coboTimer = null;
+// Co bó BB
+let coboLoai = docBoNho('coboLoai', 0);        // 0=SMA, 1=BB, 2=SMA+BB
+let coboNguongBB = docBoNho('coboNguongBB', 4); // 3/4/5%
+let coboBBVisBat = Object.assign({tim:true,xam:true,vang:true}, docBoNho('coboBBVis',{}));
+let coboBBKetQua = {};  // {ma: {w3s, ts, zones}}
+let coboBBMask = [];    // parallel to duLieuNen: 1 nếu nến nằm trong BB zone
+let coboCombMask = [];
 
 // Hiển thị / layout
 let watchlistThuGon = docBoNho('watchlistThuGon', false);
@@ -961,14 +968,21 @@ async function napBieuDo() {
     veNutEA();
     veNutCoBo();
     if (coboBat && !infoVN) {
-      if (!coboKetQua[maHienTai]) {
-        coboTinh(maHienTai).then(() => { coboVe(); coboCapNhat(); coboCapNhatPanel(); });
+      const needSMA = coboLoai !== 1;
+      const needBB  = coboLoai !== 0;
+      const hasSMA  = !!coboKetQua[maHienTai];
+      const hasBB   = !!coboBBKetQua[maHienTai];
+      if ((needSMA && !hasSMA) || (needBB && !hasBB)) {
+        const loads = [];
+        if (needSMA && !hasSMA) loads.push(coboTinh(maHienTai));
+        if (needBB  && !hasBB)  loads.push(_coboEnsureBB(maHienTai));
+        Promise.all(loads).then(() => { coboVe(); coboCapNhat(); coboCapNhatPanel(); });
       } else {
         coboVe();
         coboCapNhat();
       }
     } else {
-      coboVe(); // detach nếu là VN hoặc tắt
+      coboVe();
     }
     if (caiDatEA.on && eaCoHoTro()) {
       if (eaKetQua[maHienTai]) veEA(); else chayEA();
@@ -1130,6 +1144,39 @@ function _coboFromWidths({ widths, minDists, ts, durMs }, nguong) {
   return zones;
 }
 
+function _coboBBCalcW3s(dbars) {
+  const closes = dbars.map(b => b.c);
+  const sma20 = _sma(closes, 20);
+  const sma55 = _sma(closes, 55);
+  const n = dbars.length;
+  const w3s = new Float32Array(n).fill(NaN);
+  for (let i = 54; i < n; i++) {
+    const cl = closes[i], s20 = sma20[i], s55 = sma55[i];
+    const hi = Math.max(cl, s20, s55), lo = Math.min(cl, s20, s55);
+    w3s[i] = (hi - lo) / cl * 100;
+  }
+  return { w3s, ts: dbars.map(b => b.t) };
+}
+
+function _coboBBFromW3s({ w3s, ts }, nguong) {
+  const zones = [];
+  let zStart = null;
+  for (let i = 0; i < w3s.length; i++) {
+    const w = w3s[i];
+    if (isNaN(w)) {
+      if (zStart !== null) { zones.push({s: zStart, e: ts[i]}); zStart = null; }
+      continue;
+    }
+    if (w <= nguong) {
+      if (zStart === null) zStart = ts[i];
+    } else {
+      if (zStart !== null) { zones.push({s: zStart, e: ts[i]}); zStart = null; }
+    }
+  }
+  if (zStart !== null && ts.length) zones.push({s: zStart, e: ts[ts.length-1] + 86400000});
+  return zones;
+}
+
 function _coboOverlap(zones, startMs, endMs) {
   // Binary search: find first zone with e > startMs
   let lo = 0, hi = zones.length - 1;
@@ -1165,41 +1212,25 @@ class CoboPrimitive {
       renderer() {
         return {
           draw(target) {
-            if (!self._chart || !coboBat || !coboBitmask.length) return;
+            if (!self._chart || !coboBat) return;
+            const hasSMA = coboBitmask.length > 0;
+            const hasBB  = coboBBMask.length > 0;
+            if (coboLoai === 0 && !hasSMA) return;
+            if (coboLoai === 1 && !hasBB) return;
+            if (coboLoai === 2 && !hasSMA && !hasBB) return;
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
               const ts = self._chart.timeScale();
               const H = bitmapSize.height;
               const barH = Math.max(1, Math.round(3 * vpr));
               const gap = Math.round(4 * vpr);
-              // visible range để bỏ qua nến ngoài viewport
               const lr = ts.getVisibleLogicalRange();
               if (!lr) return;
               const iFrom = Math.max(0, Math.floor(lr.from));
               const iTo = Math.min(duLieuNen.length - 1, Math.ceil(lr.to));
-              const visMask = COBO_KHUNG.reduce((a, k) => coboVisBat[k.id] ? a|k.bit : a, 0);
 
-              ctx.save();
-              for (let i = iFrom; i <= iTo; i++) {
-                const rawMask = coboBitmask[i] || 0;
-                if (!rawMask) continue;
-                const activeBits = coboBitCount(rawMask);
-
-                // Tính showMask theo tab + comboSel
-                let showMask = 0;
-                if (coboComboSel) {
-                  showMask = rawMask === coboComboSel ? rawMask : 0;
-                } else if (coboTabSel === 0) {
-                  // Per-frame: chỉ hiện khung đang bật
-                  showMask = rawMask & visMask;
-                } else if (coboTabSel === 5) {
-                  showMask = activeBits === 5 ? rawMask : 0;
-                } else {
-                  showMask = activeBits >= coboTabSel ? rawMask : 0;
-                }
-                if (!showMask) continue;
-
+              const _xbcw = (i) => {
                 const x = ts.timeToCoordinate(duLieuNen[i].time);
-                if (x == null) continue;
+                if (x == null) return null;
                 const xb = Math.round(x * hpr);
                 let cw;
                 if (i + 1 <= iTo) {
@@ -1208,25 +1239,78 @@ class CoboPrimitive {
                 } else {
                   cw = Math.round(4 * hpr);
                 }
+                return { xb, cw };
+              };
 
-                if (coboTabSel === 0 && !coboComboSel) {
-                  // Per-frame: tô từng màu riêng, không thanh mép
-                  for (const k of COBO_KHUNG) {
-                    if (!(showMask & k.bit)) continue;
-                    ctx.fillStyle = k.mau + '2e';
-                    ctx.fillRect(xb, 0, cw, H);
+              ctx.save();
+
+              if (coboLoai === 0) {
+                const visMask = COBO_KHUNG.reduce((a, k) => coboVisBat[k.id] ? a|k.bit : a, 0);
+                for (let i = iFrom; i <= iTo; i++) {
+                  const rawMask = coboBitmask[i] || 0;
+                  if (!rawMask) continue;
+                  const activeBits = coboBitCount(rawMask);
+                  let showMask = 0;
+                  if (coboComboSel) {
+                    showMask = rawMask === coboComboSel ? rawMask : 0;
+                  } else if (coboTabSel === 0) {
+                    showMask = rawMask & visMask;
+                  } else if (coboTabSel === 5) {
+                    showMask = activeBits === 5 ? rawMask : 0;
+                  } else {
+                    showMask = activeBits >= coboTabSel ? rawMask : 0;
                   }
-                } else {
-                  // Chồng khung: nền xám + thanh màu mép trên
-                  ctx.fillStyle = 'rgba(180,180,180,0.13)';
-                  ctx.fillRect(xb, 0, cw, H);
-                  for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
-                    if (!(showMask & COBO_KHUNG[ki].bit)) continue;
-                    ctx.fillStyle = COBO_KHUNG[ki].mau;
-                    ctx.fillRect(xb, ki * gap, cw, barH);
+                  if (!showMask) continue;
+                  const r = _xbcw(i); if (!r) continue;
+                  const { xb, cw } = r;
+                  if (coboTabSel === 0 && !coboComboSel) {
+                    for (const k of COBO_KHUNG) {
+                      if (!(showMask & k.bit)) continue;
+                      ctx.fillStyle = k.mau + '2e';
+                      ctx.fillRect(xb, 0, cw, H);
+                    }
+                  } else {
+                    ctx.fillStyle = 'rgba(180,180,180,0.13)';
+                    ctx.fillRect(xb, 0, cw, H);
+                    for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
+                      if (!(showMask & COBO_KHUNG[ki].bit)) continue;
+                      ctx.fillStyle = COBO_KHUNG[ki].mau;
+                      ctx.fillRect(xb, ki * gap, cw, barH);
+                    }
                   }
                 }
+              } else if (coboLoai === 1) {
+                const BBM = '#e8c547';
+                for (let i = iFrom; i <= iTo; i++) {
+                  if (!coboBBMask[i]) continue;
+                  const r = _xbcw(i); if (!r) continue;
+                  const { xb, cw } = r;
+                  ctx.fillStyle = BBM + '2e';
+                  ctx.fillRect(xb, 0, cw, H);
+                  ctx.fillStyle = BBM;
+                  ctx.fillRect(xb, 0, cw, barH);
+                }
+              } else {
+                const C_TIM = '#d65db1', C_XAM = '#8a8f98', C_VANG = '#e8c547';
+                for (let i = iFrom; i <= iTo; i++) {
+                  let cm = coboCombMask[i] || 0;
+                  if (!cm) continue;
+                  if (!coboBBVisBat.tim)  cm &= ~1;
+                  if (!coboBBVisBat.xam)  cm &= ~2;
+                  if (!coboBBVisBat.vang) cm &= ~4;
+                  if (!cm) continue;
+                  const r = _xbcw(i); if (!r) continue;
+                  const { xb, cw } = r;
+                  const bgC = (cm & 1) ? C_TIM : (cm & 2) ? C_XAM : C_VANG;
+                  ctx.fillStyle = bgC + '2e';
+                  ctx.fillRect(xb, 0, cw, H);
+                  let barIdx = 0;
+                  if (cm & 1) { ctx.fillStyle = C_TIM;  ctx.fillRect(xb, barIdx++ * gap, cw, barH); }
+                  if (cm & 2) { ctx.fillStyle = C_XAM;  ctx.fillRect(xb, barIdx++ * gap, cw, barH); }
+                  if (cm & 4) { ctx.fillStyle = C_VANG; ctx.fillRect(xb, barIdx++ * gap, cw, barH); }
+                }
               }
+
               ctx.restore();
             });
           },
@@ -1275,21 +1359,46 @@ async function coboTinh(ma) {
 
 function coboTinhBitmask() {
   coboBitmask = new Array(duLieuNen.length).fill(0);
-  if (!coboBat || !coboKetQua[maHienTai] || !duLieuNen.length) return;
+  coboBBMask = new Array(duLieuNen.length).fill(0);
+  coboCombMask = new Array(duLieuNen.length).fill(0);
+  if (!coboBat || !duLieuNen.length) return;
   if (DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
   const kq = coboKetQua[maHienTai];
+  const bbKq = coboBBKetQua[maHienTai];
   const khungMs = _coboKhungMs();
   for (let i = 0; i < duLieuNen.length; i++) {
     const nenUtcMs = (duLieuNen[i].time - LECH_GIO) * 1000;
     const nenEndMs = (i+1 < duLieuNen.length)
       ? (duLieuNen[i+1].time - LECH_GIO) * 1000
       : nenUtcMs + khungMs;
-    let mask = 0;
-    for (const k of COBO_KHUNG) {
-      if (!kq[k.id]?.zones?.length) continue;
-      if (_coboOverlap(kq[k.id].zones, nenUtcMs, nenEndMs)) mask |= k.bit;
+    if (kq) {
+      let mask = 0;
+      for (const k of COBO_KHUNG) {
+        if (!kq[k.id]?.zones?.length) continue;
+        if (_coboOverlap(kq[k.id].zones, nenUtcMs, nenEndMs)) mask |= k.bit;
+      }
+      coboBitmask[i] = mask;
     }
-    coboBitmask[i] = mask;
+    if (bbKq?.zones?.length) {
+      coboBBMask[i] = _coboOverlap(bbKq.zones, nenUtcMs, nenEndMs) ? 1 : 0;
+    }
+    if (kq && bbKq?.zones) {
+      const dayStartMs = Math.floor(nenUtcMs / 86400000) * 86400000;
+      let combBits = 0;
+      for (let dMs = dayStartMs; dMs < nenEndMs; dMs += 86400000) {
+        const dayEnd = dMs + 86400000;
+        let smaFlag = false;
+        for (const k of COBO_KHUNG) {
+          if (!kq[k.id]?.zones?.length) continue;
+          if (_coboOverlap(kq[k.id].zones, dMs, dayEnd)) { smaFlag = true; break; }
+        }
+        const bbFlag = bbKq.zones.length > 0 && _coboOverlap(bbKq.zones, dMs, dayEnd);
+        if (smaFlag && bbFlag) combBits |= 1;
+        else if (smaFlag) combBits |= 2;
+        else if (bbFlag) combBits |= 4;
+      }
+      coboCombMask[i] = combBits;
+    }
   }
 }
 
@@ -1298,6 +1407,61 @@ function coboVe() {
   if (!coboBat || DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
   coboPrim = new CoboPrimitive();
   nenSeries.attachPrimitive(coboPrim);
+}
+
+async function coboBBTinh(ma) {
+  if (DANH_SACH_VN.find(x => x.ma === ma)) return;
+  const TU = Date.UTC(2019, 6, 1);
+  const rawBars = await L5Data.layKhung(ma, '1d', TU);
+  const nowMs = Date.now();
+  const dbars = rawBars.filter(b => b.t + 86400000 <= nowMs);
+  if (!dbars.length) return;
+  const calc = _coboBBCalcW3s(dbars);
+  coboBBKetQua[ma] = { ...calc, zones: _coboBBFromW3s(calc, coboNguongBB) };
+}
+
+async function _coboEnsureBB(ma) {
+  if (coboBBKetQua[ma]) return;
+  if (DANH_SACH_VN.find(x => x.ma === ma)) return;
+  datTrangThai('Đang tính vùng co bó BB…');
+  try {
+    await coboBBTinh(ma);
+    datTrangThai('Real-time', 'ok');
+  } catch(e) {
+    datTrangThai('Lỗi co bó BB: ' + e.message, 'err');
+  }
+}
+
+function coboCapNhatNguongBB(nguong) {
+  coboNguongBB = nguong;
+  ghiBoNho('coboNguongBB', nguong);
+  const ma = maHienTai;
+  if (!coboBBKetQua[ma]) return;
+  coboBBKetQua[ma].zones = _coboBBFromW3s(coboBBKetQua[ma], coboNguongBB);
+  coboCapNhat();
+}
+
+function _coboCombDayCounts(ma) {
+  const bbKq = coboBBKetQua[ma];
+  const kq = coboKetQua[ma];
+  if (!bbKq || !kq) return { tim:0, xam:0, vang:0, totalD:0 };
+  let tim = 0, xam = 0, vang = 0, totalD = 0;
+  for (let i = 0; i < bbKq.ts.length; i++) {
+    if (isNaN(bbKq.w3s[i])) continue;
+    totalD++;
+    const dMs = bbKq.ts[i];
+    const dEnd = dMs + 86400000;
+    let smaFlag = false;
+    for (const k of COBO_KHUNG) {
+      if (!kq[k.id]?.zones?.length) continue;
+      if (_coboOverlap(kq[k.id].zones, dMs, dEnd)) { smaFlag = true; break; }
+    }
+    const bbFlag = bbKq.w3s[i] <= coboNguongBB;
+    if (smaFlag && bbFlag) tim++;
+    else if (smaFlag) xam++;
+    else if (bbFlag) vang++;
+  }
+  return { tim, xam, vang, totalD };
 }
 
 function coboCapNhatNguong(nguong) {
@@ -1318,11 +1482,56 @@ function coboCapNhat() {
   coboVeBang();
 }
 
+function _coboVeBangBB(el) {
+  const bbKq = coboBBKetQua[maHienTai];
+  if (!bbKq) {
+    el.innerHTML = '<div style="color:#888;font-size:12px;padding:4px 0">Chưa có dữ liệu BB</div>';
+    return;
+  }
+  const { w3s } = bbKq;
+  let totalD = 0, bbCnt = 0;
+  for (let i = 0; i < w3s.length; i++) {
+    if (isNaN(w3s[i])) continue;
+    totalD++;
+    if (w3s[i] <= coboNguongBB) bbCnt++;
+  }
+  const fPct = (n, d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
+  el.innerHTML = `<div style="font-size:12px;padding:4px 0">` +
+    `<span style="color:#e8c547">■</span> Co bó BB: <b>${bbCnt}</b> ngày D` +
+    ` <span style="color:#888">(${fPct(bbCnt, totalD)} / ${totalD} ngày có dữ liệu)</span></div>`;
+}
+
+function _coboVeBangComb(el) {
+  const bbKq = coboBBKetQua[maHienTai];
+  const kq = coboKetQua[maHienTai];
+  if (!bbKq || !kq) {
+    el.innerHTML = '<div style="color:#888;font-size:12px;padding:4px 0">Chưa có dữ liệu</div>';
+    return;
+  }
+  const { tim, xam, vang, totalD } = _coboCombDayCounts(maHienTai);
+  const fPct = (n, d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
+  const total = tim + xam + vang;
+  let html = `<table class="cobo-tbl"><thead><tr><th>Loại</th><th>Ngày D</th><th>%</th></tr></thead><tbody>`;
+  if (coboBBVisBat.tim)  html += `<tr><td><span class="cobo-badge" style="color:#d65db1;border-color:#d65db1">TÍM</span></td><td>${tim}</td><td>${fPct(tim,totalD)}</td></tr>`;
+  if (coboBBVisBat.xam)  html += `<tr><td><span class="cobo-badge" style="color:#8a8f98;border-color:#8a8f98">XÁM</span></td><td>${xam}</td><td>${fPct(xam,totalD)}</td></tr>`;
+  if (coboBBVisBat.vang) html += `<tr><td><span class="cobo-badge" style="color:#e8c547;border-color:#e8c547">VÀNG</span></td><td>${vang}</td><td>${fPct(vang,totalD)}</td></tr>`;
+  html += `<tr class="cobo-tot"><td>Tổng</td><td>${total}</td><td>${fPct(total,totalD)}</td></tr>`;
+  html += `</tbody></table>`;
+  html += `<div style="color:#888;font-size:11px;padding:2px 0">/ ${totalD} ngày D có dữ liệu</div>`;
+  el.innerHTML = html;
+}
+
 function coboVeBang() {
   const el = document.getElementById('coboBang');
   if (!el) return;
   const isVN = !!DANH_SACH_VN.find(x => x.ma === maHienTai);
-  if (isVN || !coboBat || !coboBitmask.length || !coboKetQua[maHienTai]) {
+  if (isVN || !coboBat) {
+    el.innerHTML = '<div style="color:#888;font-size:12px;padding:4px 0">Chưa có dữ liệu</div>';
+    return;
+  }
+  if (coboLoai === 1) { _coboVeBangBB(el); return; }
+  if (coboLoai === 2) { _coboVeBangComb(el); return; }
+  if (!coboBitmask.length || !coboKetQua[maHienTai]) {
     el.innerHTML = '<div style="color:#888;font-size:12px;padding:4px 0">Chưa có dữ liệu</div>';
     return;
   }
@@ -1409,8 +1618,12 @@ function coboLapLich() {
     if (DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
     const ma = maHienTai;
     const prevH1T = coboKetQua[ma]?.lastH1T || 0;
-    await coboTinh(ma);
-    if (coboKetQua[ma]?.lastH1T !== prevH1T) coboCapNhat();
+    if (coboLoai !== 1) await coboTinh(ma);
+    if (coboLoai !== 0) {
+      await coboBBTinh(ma);
+    }
+    const changed = (coboKetQua[ma]?.lastH1T !== prevH1T) || coboLoai !== 0;
+    if (changed) coboCapNhat();
   }, 5 * 60 * 1000);
 }
 
@@ -1427,15 +1640,16 @@ function khoiDongCoBoPanel() {
     veNutCoBo();
     if (coboBat) {
       panel.hidden = false;
-      if (!coboKetQua[maHienTai]) {
-        await coboTinh(maHienTai);
-      }
+      const needSMA = coboLoai !== 1;
+      const needBB  = coboLoai !== 0;
+      if (needSMA && !coboKetQua[maHienTai]) await coboTinh(maHienTai);
+      if (needBB)  await _coboEnsureBB(maHienTai);
       coboVe();
       coboCapNhat();
       coboCapNhatPanel();
     } else {
       panel.hidden = true;
-      coboVe(); // detach primitive
+      coboVe();
     }
   };
 
@@ -1444,61 +1658,132 @@ function khoiDongCoBoPanel() {
 }
 
 function coboCapNhatPanel() {
-  // Hàng 0: ngưỡng co bó
-  const nguongRow = document.getElementById('coboNguongRow');
-  if (!nguongRow) return;
-  nguongRow.innerHTML = '';
-  [5, 4, 3.5, 3].forEach(v => {
-    const b = document.createElement('button');
-    b.className = 'cobo-btn' + (coboNguong === v ? ' active' : '');
-    b.textContent = v + '%';
-    b.onclick = () => { coboCapNhatNguong(v); coboCapNhatPanel(); };
-    nguongRow.appendChild(b);
-  });
+  const loaiRow = document.getElementById('coboLoaiRow');
+  if (!loaiRow) return;
 
-  // Hàng 1: toggle vis (H12/H8/H4/H2/H1)
-  const visRow = document.getElementById('coboVisRow');
-  if (!visRow) return;
-  visRow.innerHTML = '';
-  COBO_KHUNG.forEach(k => {
+  // Hàng loại co bó
+  loaiRow.innerHTML = '';
+  [['Co bó SMA', 0], ['Co bó BB', 1], ['SMA + BB', 2]].forEach(([label, v]) => {
     const b = document.createElement('button');
-    b.className = 'cobo-btn' + (coboVisBat[k.id] ? ' active' : '');
-    b.textContent = k.id.toUpperCase();
-    b.style.borderColor = k.mau;
-    b.style.color = coboVisBat[k.id] ? '#fff' : k.mau;
-    b.style.background = coboVisBat[k.id] ? k.mau : '';
-    b.onclick = () => {
-      coboVisBat[k.id] = !coboVisBat[k.id];
-      ghiBoNho('coboVis_v3', coboVisBat);
+    b.className = 'cobo-btn' + (coboLoai === v ? ' active' : '');
+    b.textContent = label;
+    b.onclick = async () => {
+      coboLoai = v;
+      ghiBoNho('coboLoai', v);
       coboCapNhatPanel();
       coboCapNhat();
+      if (coboLoai !== 0 && !coboBBKetQua[maHienTai]) {
+        await _coboEnsureBB(maHienTai);
+        coboCapNhat();
+        coboCapNhatPanel();
+      }
     };
-    visRow.appendChild(b);
+    loaiRow.appendChild(b);
   });
 
-  // Hàng 2: tab chồng khung (bấm lại ô đang chọn → bỏ chọn về 0)
-  const tabRow = document.getElementById('coboTabRow');
-  if (tabRow) {
-    tabRow.innerHTML = '';
-    const tabs = [
-      [1, 'Có màu (≥1)'],
-      [2, '2+ màu'],
-      [3, '3+ màu'],
-      [4, '4+ màu'],
-      [5, 'Cả 5 màu'],
-    ];
-    tabs.forEach(([k, label]) => {
+  // Show/hide BB ngưỡng
+  const bbNhom = document.getElementById('coboBBNhom');
+  const bbNguongRow = document.getElementById('coboBBNguongRow');
+  const showBB = coboLoai !== 0;
+  if (bbNhom)     bbNhom.style.display     = showBB ? '' : 'none';
+  if (bbNguongRow) bbNguongRow.style.display = showBB ? '' : 'none';
+
+  if (showBB && bbNguongRow) {
+    bbNguongRow.innerHTML = '';
+    [3, 4, 5].forEach(v => {
       const b = document.createElement('button');
-      b.className = 'cobo-btn' + (coboTabSel === k ? ' active' : '');
+      b.className = 'cobo-btn' + (coboNguongBB === v ? ' active' : '');
+      b.textContent = v + '%';
+      b.onclick = () => { coboCapNhatNguongBB(v); coboCapNhatPanel(); };
+      bbNguongRow.appendChild(b);
+    });
+  }
+
+  // Show/hide SMA rows
+  const showSMA = coboLoai !== 1;
+  const smaNhom  = document.getElementById('coboSMANhom');
+  const khungNhom = document.getElementById('coboKhungNhom');
+  const tabNhom   = document.getElementById('coboTabNhom');
+  const nguongRow = document.getElementById('coboNguongRow');
+  const visRow    = document.getElementById('coboVisRow');
+  const tabRow    = document.getElementById('coboTabRow');
+  if (smaNhom)   smaNhom.style.display   = showSMA ? '' : 'none';
+  if (khungNhom) khungNhom.style.display = showSMA ? '' : 'none';
+  if (tabNhom)   tabNhom.style.display   = showSMA ? '' : 'none';
+  if (nguongRow) nguongRow.style.display = showSMA ? '' : 'none';
+  if (visRow)    visRow.style.display    = showSMA ? '' : 'none';
+  if (tabRow)    tabRow.style.display    = showSMA ? '' : 'none';
+
+  if (showSMA) {
+    if (nguongRow) {
+      nguongRow.innerHTML = '';
+      [5, 4, 3.5, 3].forEach(v => {
+        const b = document.createElement('button');
+        b.className = 'cobo-btn' + (coboNguong === v ? ' active' : '');
+        b.textContent = v + '%';
+        b.onclick = () => { coboCapNhatNguong(v); coboCapNhatPanel(); };
+        nguongRow.appendChild(b);
+      });
+    }
+    if (visRow) {
+      visRow.innerHTML = '';
+      COBO_KHUNG.forEach(k => {
+        const b = document.createElement('button');
+        b.className = 'cobo-btn' + (coboVisBat[k.id] ? ' active' : '');
+        b.textContent = k.id.toUpperCase();
+        b.style.borderColor = k.mau;
+        b.style.color = coboVisBat[k.id] ? '#fff' : k.mau;
+        b.style.background = coboVisBat[k.id] ? k.mau : '';
+        b.onclick = () => {
+          coboVisBat[k.id] = !coboVisBat[k.id];
+          ghiBoNho('coboVis_v3', coboVisBat);
+          coboCapNhatPanel();
+          coboCapNhat();
+        };
+        visRow.appendChild(b);
+      });
+    }
+    if (tabRow) {
+      tabRow.innerHTML = '';
+      [[1,'Có màu (≥1)'],[2,'2+ màu'],[3,'3+ màu'],[4,'4+ màu'],[5,'Cả 5 màu']].forEach(([k, label]) => {
+        const b = document.createElement('button');
+        b.className = 'cobo-btn' + (coboTabSel === k ? ' active' : '');
+        b.textContent = label;
+        b.onclick = () => {
+          coboTabSel = coboTabSel === k ? 0 : k;
+          coboComboSel = 0;
+          ghiBoNho('coboTab_v3', coboTabSel);
+          coboCapNhatPanel();
+          coboCapNhat();
+        };
+        tabRow.appendChild(b);
+      });
+    }
+  }
+
+  // Show/hide SMA+BB vis toggles
+  const combNhom   = document.getElementById('coboCombNhom');
+  const combVisRow = document.getElementById('coboCombVisRow');
+  const showComb = coboLoai === 2;
+  if (combNhom)   combNhom.style.display   = showComb ? '' : 'none';
+  if (combVisRow) combVisRow.style.display = showComb ? '' : 'none';
+  if (showComb && combVisRow) {
+    combVisRow.innerHTML = '';
+    [['TÍM', 'tim', '#d65db1'], ['XÁM', 'xam', '#8a8f98'], ['VÀNG', 'vang', '#e8c547']].forEach(([label, key, mau]) => {
+      const b = document.createElement('button');
+      const on = coboBBVisBat[key];
+      b.className = 'cobo-btn' + (on ? ' active' : '');
       b.textContent = label;
+      b.style.borderColor = mau;
+      b.style.color = on ? '#fff' : mau;
+      b.style.background = on ? mau : '';
       b.onclick = () => {
-        coboTabSel = coboTabSel === k ? 0 : k;
-        coboComboSel = 0;
-        ghiBoNho('coboTab_v3', coboTabSel);
+        coboBBVisBat[key] = !coboBBVisBat[key];
+        ghiBoNho('coboBBVis', coboBBVisBat);
         coboCapNhatPanel();
         coboCapNhat();
       };
-      tabRow.appendChild(b);
+      combVisRow.appendChild(b);
     });
   }
 
