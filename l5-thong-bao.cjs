@@ -1,7 +1,8 @@
 // =====================================================================
-//  l5-thong-bao.cjs — GỬI THÔNG BÁO TELEGRAM CHO EA L5 (crypto, chạy trên GitHub Actions)
+//  l5-thong-bao.cjs — GỬI THÔNG BÁO TELEGRAM CHO EA L5 + EA F1 (crypto, chạy trên GitHub Actions)
 //  Chạy MỖI GIỜ:
 //   1. Tải nến Binance + chạy L5 cho BTCUSDT, ETHUSDT, PAXGUSDT (dùng đúng ea-l5-data.js + ea-l5-engine.js như app).
+//      Chạy thêm EA F1 cho BTCUSDT (ea-f1-engine.js + ea-f1-data.js, luồng H2, H4, D) — thêm 04/11/2026.
 //   2. Lệnh nào VÀO hoặc THOÁT kể từ lần chạy trước → gửi tin ngay.
 //   3. Lần chạy đầu tiên sau 07:00 giờ VN mỗi ngày (nến D vừa đóng) → gửi tin TÓM TẮT.
 //  Trạng thái (lần chạy trước, ngày đã tóm tắt) lưu ở thư mục .l5-state (GitHub cache giữ giữa các lần chạy).
@@ -11,6 +12,9 @@
 const fs = require('fs');
 globalThis.L5 = require('./ea-l5-engine.js');
 require('./ea-l5-data.js'); // gắn globalThis.L5Data (không có IndexedDB → tự chạy không cache)
+globalThis.F1 = require('./ea-f1-engine.js');
+require('./ea-f1-data.js'); // gắn globalThis.F1Data
+const DS_F1 = [['BTCUSDT', 'BTC']]; // EA F1 chỉ chạy BTC
 
 const DS_MA = [['BTCUSDT', 'BTC'], ['ETHUSDT', 'ETH'], ['PAXGUSDT', 'Vàng (PAXG)']];
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
@@ -42,23 +46,23 @@ async function giaHienTai(ma) {
   return null;
 }
 
-// Lệnh vào / thoát trong khoảng (tu, den]
-function suKien(ma, ten, kq, tu, den) {
+// Lệnh vào / thoát trong khoảng (tu, den]; ea = 'L5' | 'F1' (ghi trước tên luồng)
+function suKien(ma, ten, kq, tu, den, ea = 'L5') {
   const out = [];
   for (const t of kq.trades) {
     if (t.entryT > tu && t.entryT <= den) {
       const sl = t.slHist.length ? t.slHist[0].sl : null;
-      out.push({ t: t.entryT, text: `🟢 <b>${ten}</b> ${t.leg}: MUA @${gia(t.entry)} lúc ${gioVN(t.entryT)} · SL ${sl === null ? '–' : gia(sl)}\n   (${t.method})` });
+      out.push({ t: t.entryT, text: `🟢 <b>${ten}</b> ${ea} ${t.leg}: MUA @${gia(t.entry)} lúc ${gioVN(t.entryT)} · SL ${sl === null ? '–' : gia(sl)}\n   (${t.method})` });
     }
     if (t.exitT !== null && t.exitT > tu && t.exitT <= den) {
-      out.push({ t: t.exitT, text: `🔴 <b>${ten}</b> ${t.leg}: THOÁT @${gia(t.exit)} lúc ${gioVN(t.exitT)} (${t.reason}) · ${pct(t.pnlPct)}\n   Vào ${gioVN(t.entryT)} @${gia(t.entry)}` });
+      out.push({ t: t.exitT, text: `🔴 <b>${ten}</b> ${ea} ${t.leg}: THOÁT @${gia(t.exit)} lúc ${gioVN(t.exitT)} (${t.reason}) · ${pct(t.pnlPct)}\n   Vào ${gioVN(t.entryT)} @${gia(t.entry)}` });
     }
   }
   return out;
 }
 
-function tomTat(ds) {
-  const out = [`<b>📊 L5 — Tóm tắt sáng ${ngayVN(Date.now())}</b> (nến D đã đóng 07:00)`];
+function tomTat(ds, dsF1 = []) {
+  const out = [`<b>📊 EA — Tóm tắt sáng ${ngayVN(Date.now())}</b> (nến D đã đóng 07:00)`, '', '<b>— L5 —</b>'];
   for (const x of ds) {
     const b = x.kq.status.bias;
     out.push('', `<b>${x.ten}</b> giá ${x.gia ? gia(x.gia) : '–'} · Bias W: ${b.valid ? 'hợp lệ (' + b.method + ')' : 'KHÔNG hợp lệ'}`);
@@ -71,6 +75,23 @@ function tomTat(ds) {
       const sl = t.slHist.length ? t.slHist[t.slHist.length - 1].sl : null;
       const lai = x.gia ? ' · ' + pct((x.gia / t.entry - 1) * 100) : '';
       out.push(`  ${t.leg} vào ${gioVN(t.entryT)} @${gia(t.entry)} · SL ${sl === null ? '–' : gia(sl)}${lai}`);
+    }
+  }
+  if (dsF1.length) out.push('', '<b>— F1 —</b>');
+  for (const x of dsF1) {
+    const lg = x.kq.status.legs, tk = x.kq.thongKe;
+    out.push(`<b>${x.ten}</b> giá ${x.gia ? gia(x.gia) : '–'}`);
+    for (const leg of ['H2', 'H4', 'D']) {
+      const p = lg[leg] && lg[leg].pos;
+      const lai = p && x.gia ? ' · ' + pct((x.gia / p.price - 1) * 100) : '';
+      const coBo = leg === 'D' ? '' : ` · đang co bó: ${lg[leg].coBo ? '✓' : '✗'}`;
+      out.push(`  ${leg}: ${p ? `giữ lệnh @${gia(p.price)} · SL ${gia(p.sl)}${lai}` : 'không có lệnh'}${coBo} · từ 2020: ${tk[leg].total} lệnh, cộng ${pct(tk[leg].tongPct)}`);
+    }
+    const n = lg.D && lg.D.ngay;
+    if (n) {
+      const mau = n.vungBB && n.vungSMA ? '🟣 tím' : n.vungBB ? '🟡 vàng (chỉ BB)' : n.vungSMA ? '⚪ xám (chỉ SMA)' : 'không';
+      out.push(`  Nến D ${ngayVN(n.t)}: co bó ${mau} · BB rộng ${n.w3.toFixed(2)}% · RSI ${n.rsi.toFixed(1)}` +
+        (n.L ? ` · L1..L4 ${n.L.map((v) => v.toFixed(1)).join('/')}` : ''));
     }
   }
   return out.join('\n');
@@ -88,19 +109,29 @@ async function main() {
       ds.push({ ma, ten, kq, gia: await giaHienTai(ma) });
     } catch (e) { loi.push(ten); console.error(ma, e.message); }
   }
-  if (!ds.length) {
+  // EA F1 (BTC)
+  const dsF1 = [];
+  for (const [ma, ten] of DS_F1) {
+    try {
+      const kq = await F1Data.chayF1(ma, (m) => console.log('F1', ma, m));
+      const x = ds.find((y) => y.ma === ma);
+      dsF1.push({ ma, ten, kq, gia: x ? x.gia : await giaHienTai(ma) });
+    } catch (e) { loi.push('F1 ' + ten); console.error('F1', ma, e.message); }
+  }
+  if (!ds.length && !dsF1.length) {
     // Báo lỗi tối đa 6 giờ/lần để khỏi gửi liên tục
-    if (!tt.baoLoi || now - tt.baoLoi > 6 * H) { await gui('❗ <b>L5</b>: không tải được dữ liệu Binance. Có thể máy chủ đang chặn, sẽ tự thử lại mỗi giờ.'); tt.baoLoi = now; }
+    if (!tt.baoLoi || now - tt.baoLoi > 6 * H) { await gui('❗ <b>EA L5/F1</b>: không tải được dữ liệu Binance. Có thể máy chủ đang chặn, sẽ tự thử lại mỗi giờ.'); tt.baoLoi = now; }
     ghiTT(tt); process.exitCode = 1; return;
   }
   // 1. Lệnh vào/thoát mới
-  const sk = ds.flatMap((x) => suKien(x.ma, x.ten, x.kq, tu, now)).sort((a, b) => a.t - b.t);
-  if (sk.length) await gui(`<b>⚡ L5 — Lệnh mới</b>\n` + sk.map((s) => s.text).join('\n'));
+  const sk = [...ds.flatMap((x) => suKien(x.ma, x.ten, x.kq, tu, now, 'L5')),
+    ...dsF1.flatMap((x) => suKien(x.ma, x.ten, x.kq, tu, now, 'F1'))].sort((a, b) => a.t - b.t);
+  if (sk.length) await gui(`<b>⚡ EA — Lệnh mới</b>\n` + sk.map((s) => s.text).join('\n'));
   // 2. Tóm tắt mỗi ngày (lần chạy đầu tiên sau 07:00 VN)
   const homNay = ngayVN(now);
   const daQua7h = new Date(now + VN).getUTCHours() >= 7;
   if (THU || (daQua7h && tt.tomTat !== homNay)) {
-    await gui(tomTat(ds) + (loi.length ? `\n\n❗ Không tải được: ${loi.join(', ')}` : ''));
+    await gui(tomTat(ds, dsF1) + (loi.length ? `\n\n❗ Không tải được: ${loi.join(', ')}` : ''));
     if (!THU) tt.tomTat = homNay;
   }
   // Chạy tay không dời mốc, để lần chạy tự động sau không bỏ sót lệnh
@@ -109,6 +140,6 @@ async function main() {
 }
 main().catch(async (e) => {
   console.error(e);
-  try { await gui('❗ L5 thông báo lỗi: ' + e.message); } catch (_) { /* bỏ qua */ }
+  try { await gui('❗ EA (L5/F1) thông báo lỗi: ' + e.message); } catch (_) { /* bỏ qua */ }
   process.exitCode = 1;
 });

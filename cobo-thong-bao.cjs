@@ -8,6 +8,11 @@
 //   - độ rộng = (max − min của K đường) / close × 100; co bó khi ≤ NGUONG
 //     VÀ khoảng cách giá → SMA gần nhất ≤ KC_GIA (thêm 03/11/2026).
 //   - "Vào vùng mới" = nến vừa đóng co bó, nến trước đó không co bó.
+//  CO BÓ BB (khung D, thêm 04/11/2026 — giống EA F1):
+//   - w3 = (max − min của {close, SMA20, SMA55} nến D) / close × 100; co bó BB khi ≤ NGUONG_BB (4%).
+//   - Màu ngày: 🟣 tím = BB + co bó SMA (≥1 nến của 5 khung trong ngày đó, ngày UTC);
+//     🟡 vàng = chỉ BB; ⚪ xám = chỉ SMA.
+//   - Báo khi nến D vừa đóng (07:00 VN) chuyển sang TÍM hoặc VÀNG (khác màu ngày trước).
 //  Trạng thái (nến đã xét của từng khung) lưu ở .cobo-state (GitHub cache).
 //  Cần 2 secret: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
 // =====================================================================
@@ -17,6 +22,8 @@ const fs = require('fs');
 const MA = 'BTCUSDT';
 const NGUONG = 3.0; // % — Sâu chốt 03/11/2026
 const KC_GIA = 3.0; // % — |close − SMA gần nhất| / close tối đa
+const NGUONG_BB = 4.0; // % — co bó BB khung D (EA F1)
+const D_MS = 24 * 3600e3;
 const SMA = [34, 55, 89, 144, 233, 377, 610, 987];
 const H = 3600e3, VN = 7 * H;
 // Thứ tự hiển thị giống web: H12, H8, H4, H2, H1
@@ -76,6 +83,16 @@ function doRong(bars, K) {
 }
 const coBo = (x) => x !== null && x.w <= NGUONG && x.d <= KC_GIA;
 
+// Co bó BB khung D: w3 mỗi nến D (null khi chưa đủ SMA55)
+function doRongBB(d) {
+  const c = d.map((b) => b.c), s20 = sma(c, 20), s55 = sma(c, 55);
+  return d.map((b, i) => (Number.isNaN(s55[i]) ? null
+    : ((Math.max(b.c, s20[i], s55[i]) - Math.min(b.c, s20[i], s55[i])) / b.c) * 100));
+}
+const ngayUTC = (t) => Math.floor(t / D_MS) * D_MS;
+const ngayVN = (t) => { const x = new Date(t + VN); return `${String(x.getUTCDate()).padStart(2, '0')}/${String(x.getUTCMonth() + 1).padStart(2, '0')}`; };
+const TEN_MAU = { tim: '🟣 TÍM (BB + SMA)', vang: '🟡 VÀNG (chỉ BB)', xam: '⚪ xám (chỉ SMA)', khong: 'không' };
+
 // ---------- Telegram + trạng thái ----------
 async function gui(text) {
   if (!TOKEN || !CHAT) { console.log('----- (không có token, chỉ in) -----\n' + text); return; }
@@ -110,6 +127,28 @@ async function main() {
     kq.push({ k, bars, w, i, vaoMoi, dang: coBo(w[i]) });
   }
 
+  // ---- Co bó BB khung D ----
+  const ngaySMA = new Map(); // ngày UTC → các khung SMA có co bó trong ngày
+  for (const x of kq) x.bars.forEach((b, j) => {
+    if (!coBo(x.w[j])) return;
+    const n = ngayUTC(b.t); if (!ngaySMA.has(n)) ngaySMA.set(n, new Set()); ngaySMA.get(n).add(x.k.id);
+  });
+  const dBars = await layNen({ iv: '1d', ms: D_MS });
+  const w3 = doRongBB(dBars);
+  const mauNgay = (j) => {
+    const bb = w3[j] !== null && w3[j] <= NGUONG_BB, sm = ngaySMA.has(dBars[j].t);
+    return bb && sm ? 'tim' : bb ? 'vang' : sm ? 'xam' : 'khong';
+  };
+  const iD = dBars.length - 1;
+  const truocD = tt.daXet.D;
+  const suKienBB = [];
+  for (let j = 1; j <= iD; j++) {
+    const canXet = truocD === undefined ? j === iD : dBars[j].t > truocD;
+    const m = mauNgay(j);
+    if (canXet && (m === 'tim' || m === 'vang') && m !== mauNgay(j - 1)) suKienBB.push(j);
+  }
+  tt.daXet.D = dBars[iD].t;
+
   const trangThai = () => kq.map((x) => {
     const r = x.w[x.i];
     const ttxt = x.dang ? `CO BÓ từ ${gioVN(batDauVung(x.bars, x.w, x.i))}` : 'không';
@@ -124,7 +163,20 @@ async function main() {
     await gui(`<b>📐 BTC — Vùng co bó mới</b> (rộng ≤ ${NGUONG}%, cách giá ≤ ${KC_GIA}%)\n` + dong.join('\n') +
       `\n\nGiá ${gia(giaNay)} · Đang co bó ${dangCoBo.length}/5 khung: ${dangCoBo.join(', ') || '–'}`);
   }
-  if (THU) await gui(`<b>📐 BTC — Trạng thái vùng co bó</b> (rộng ≤ ${NGUONG}%, cách giá ≤ ${KC_GIA}%, giá ${gia(giaNay)})\n` + trangThai());
+  if (suKienBB.length) {
+    const dong = suKienBB.map((j) => {
+      const sm = ngaySMA.get(dBars[j].t);
+      return `Nến D ${ngayVN(dBars[j].t)} (đóng 07:00): ${TEN_MAU[mauNgay(j)]} · BB rộng ${w3[j].toFixed(2)}%` +
+        ` · giá đóng ${gia(dBars[j].c)}` + (sm ? ` · SMA co bó: ${[...sm].join(', ')}` : '');
+    });
+    await gui(`<b>🟣 BTC — Co bó BB khung D</b> (close/SMA20/SMA55 rộng ≤ ${NGUONG_BB}%)\n` + dong.join('\n'));
+  }
+  const dongBB = () => {
+    const r = w3[iD], homNay = ngaySMA.get(ngayUTC(Date.now()));
+    return `🟣 <b>BB D</b> nến ${ngayVN(dBars[iD].t)}: ${r === null ? '–' : 'rộng ' + r.toFixed(2) + '%'} · màu ${TEN_MAU[mauNgay(iD)]}` +
+      `\n   Hôm nay (chưa đóng) SMA co bó: ${homNay ? [...homNay].join(', ') : 'chưa'}`;
+  };
+  if (THU) await gui(`<b>📐 BTC — Trạng thái vùng co bó</b> (SMA: rộng ≤ ${NGUONG}%, cách giá ≤ ${KC_GIA}% · BB D ≤ ${NGUONG_BB}%, giá ${gia(giaNay)})\n` + trangThai() + '\n' + dongBB());
   ghiTT(tt);
 }
 main().catch(async (e) => {
