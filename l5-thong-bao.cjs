@@ -46,15 +46,19 @@ async function giaHienTai(ma) {
   return null;
 }
 
-// Lệnh vào / thoát trong khoảng (tu, den]; ea = 'L5' | 'F1' (ghi trước tên luồng)
-function suKien(ma, ten, kq, tu, den, ea = 'L5') {
+// Lệnh vào / thoát chưa báo. Lưu ý: giờ vào/thoát của EA = mốc đầu nến H1 kế tiếp, nhưng
+// chỉ tính được khi nến H1 đó ĐÓNG (trễ tới 1 giờ) → không lọc theo "từ lần chạy trước"
+// mà nhớ danh sách sự kiện ĐÃ BÁO (tt.daBao) và báo mọi sự kiện mới trong 48 giờ qua.
+// ea = 'L5' | 'F1' (ghi trước tên luồng)
+function suKien(ma, ten, kq, canBao, ea = 'L5') {
   const out = [];
   for (const t of kq.trades) {
-    if (t.entryT > tu && t.entryT <= den) {
+    const kVao = `${ea}|${ma}|${t.leg}|${t.entryT}|vao`, kRa = `${ea}|${ma}|${t.leg}|${t.entryT}|${t.exitT}|ra`;
+    if (canBao(kVao, t.entryT)) {
       const sl = t.slHist.length ? t.slHist[0].sl : null;
       out.push({ t: t.entryT, text: `🟢 <b>${ten}</b> ${ea} ${t.leg}: MUA @${gia(t.entry)} lúc ${gioVN(t.entryT)} · SL ${sl === null ? '–' : gia(sl)}\n   (${t.method})` });
     }
-    if (t.exitT !== null && t.exitT > tu && t.exitT <= den) {
+    if (t.exitT !== null && canBao(kRa, t.exitT)) {
       out.push({ t: t.exitT, text: `🔴 <b>${ten}</b> ${ea} ${t.leg}: THOÁT @${gia(t.exit)} lúc ${gioVN(t.exitT)} (${t.reason}) · ${pct(t.pnlPct)}\n   Vào ${gioVN(t.entryT)} @${gia(t.entry)}` });
     }
   }
@@ -103,7 +107,17 @@ async function main() {
   const tt = docTT();
   const now = Date.now();
   // Lần đầu (chưa có trạng thái) hoặc chạy tay: xem lại 24 giờ qua
-  const tu = THU || !tt.lanTruoc ? now - 24 * H : tt.lanTruoc;
+  // Chạy tay: xem lại 24 giờ qua. Tự động: sự kiện chưa báo trong 48 giờ qua.
+  // Lần đầu sau khi đổi cách (chưa có daBao): coi như đã báo các sự kiện trước lanTruoc − 2 giờ.
+  const daBao = new Set(tt.daBao || []);
+  const mocCu = tt.daBao ? null : (tt.lanTruoc ? tt.lanTruoc - 2 * H : now - 24 * H);
+  const moi = [];
+  const canBao = (k, t) => {
+    if (THU) { if (t > now - 24 * H) { moi.push([k, t]); return true; } return false; }
+    if (t <= now - 48 * H || daBao.has(k)) return false;
+    moi.push([k, t]);
+    return mocCu === null || t > mocCu;
+  };
   const ds = [], loi = [];
   for (const [ma, ten] of DS_MA) {
     try {
@@ -126,8 +140,8 @@ async function main() {
     ghiTT(tt); process.exitCode = 1; return;
   }
   // 1. Lệnh vào/thoát mới
-  const sk = [...ds.flatMap((x) => suKien(x.ma, x.ten, x.kq, tu, now, 'L5')),
-    ...dsF1.flatMap((x) => suKien(x.ma, x.ten, x.kq, tu, now, 'F1'))].sort((a, b) => a.t - b.t);
+  const sk = [...ds.flatMap((x) => suKien(x.ma, x.ten, x.kq, canBao, 'L5')),
+    ...dsF1.flatMap((x) => suKien(x.ma, x.ten, x.kq, canBao, 'F1'))].sort((a, b) => a.t - b.t);
   if (sk.length) await gui(`<b>⚡ EA — Lệnh mới</b>\n` + sk.map((s) => s.text).join('\n'));
   // 2. Tóm tắt mỗi ngày (lần chạy đầu tiên sau 07:00 VN)
   const homNay = ngayVN(now);
@@ -138,6 +152,11 @@ async function main() {
   }
   // Chạy tay không dời mốc, để lần chạy tự động sau không bỏ sót lệnh
   if (!THU || !tt.lanTruoc) tt.lanTruoc = now;
+  // Ghi nhớ sự kiện đã báo (giữ 3 ngày gần nhất cho gọn)
+  const giu = [...(tt.daBaoT || []), ...moi].filter(([, t]) => t > now - 72 * H);
+  const map = new Map(giu.map(([k, t]) => [k, t]));
+  tt.daBaoT = [...map.entries()];
+  tt.daBao = [...map.keys()];
   ghiTT(tt);
 }
 main().catch(async (e) => {
