@@ -79,19 +79,21 @@ function tomTat(ds, dsF1 = []) {
   }
   if (dsF1.length) out.push('', '<b>— F1 —</b>');
   for (const x of dsF1) {
-    const lg = x.kq.status.legs, tk = x.kq.thongKe;
+    const lg = x.kq.status.legs;
     out.push(`<b>${x.ten}</b> giá ${x.gia ? gia(x.gia) : '–'}`);
     for (const leg of ['H2', 'H4', 'D']) {
       const p = lg[leg] && lg[leg].pos;
-      const lai = p && x.gia ? ' · ' + pct((x.gia / p.price - 1) * 100) : '';
-      const coBo = leg === 'D' ? '' : ` · đang co bó: ${lg[leg].coBo ? '✓' : '✗'}`;
-      out.push(`  ${leg}: ${p ? `giữ lệnh @${gia(p.price)} · SL ${gia(p.sl)}${lai}` : 'không có lệnh'}${coBo} · từ 2020: ${tk[leg].total} lệnh, cộng ${pct(tk[leg].tongPct)}`);
-    }
-    const n = lg.D && lg.D.ngay;
-    if (n) {
-      const mau = n.vungBB && n.vungSMA ? '🟣 tím' : n.vungBB ? '🟡 vàng (chỉ BB)' : n.vungSMA ? '⚪ xám (chỉ SMA)' : 'không';
-      out.push(`  Nến D ${ngayVN(n.t)}: co bó ${mau} · BB rộng ${n.w3.toFixed(2)}% · RSI ${n.rsi.toFixed(1)}` +
-        (n.L ? ` · L1..L4 ${n.L.map((v) => v.toFixed(1)).join('/')}` : ''));
+      const lenh = p ? `giữ lệnh @${gia(p.price)} · SL ${gia(p.sl)}${x.gia ? ' · ' + pct((x.gia / p.price - 1) * 100) : ''}` : 'không có lệnh';
+      let vung;
+      if (leg === 'D') {
+        const n = lg.D && lg.D.ngay;
+        const ten = !n ? 'Không co bó' : n.vungBB && n.vungSMA ? 'Co bó tím' : n.vungBB ? 'Co bó vàng (chỉ BB)' : n.vungSMA ? 'Co bó xám (chỉ SMA)' : 'Không co bó';
+        vung = ten + (n ? ` - ${n.w3.toFixed(2)}%` : '');
+      } else {
+        const w = lg[leg].w;
+        vung = (lg[leg].coBo ? 'Trong vùng co bó' : 'Không trong vùng co bó') + (w == null ? '' : ` - ${w.toFixed(2)}%`);
+      }
+      out.push(`• ${leg}: ${lenh} / ${vung}`);
     }
   }
   return out.join('\n');

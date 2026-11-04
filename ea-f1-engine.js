@@ -192,8 +192,8 @@
       trades,
       status: {
         legs: {
-          H2: { pos: viThe(H2), coBo: H2.zone ? H2.zone.zone : null },
-          H4: { pos: viThe(H4), coBo: H4.zone ? H4.zone.zone : null },
+          H2: { pos: viThe(H2), coBo: H2.zone ? H2.zone.zone : null, w: H2.zone && H2.zone.valid ? H2.zone.w : null },
+          H4: { pos: viThe(H4), coBo: H4.zone ? H4.zone.zone : null, w: H4.zone && H4.zone.valid ? H4.zone.w : null },
           D: { pos: viThe(D), ngay: D.last || null }, // ngay: {vungBB, vungSMA, w3, rsi, L} của nến D cuối
         },
       },
