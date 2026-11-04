@@ -985,9 +985,9 @@ async function napBieuDo() {
       coboVe();
     }
     if (caiDatEA.on && eaCoHoTro()) {
-      if (eaKetQua[maHienTai]) veEA(); else chayEA();
+      if (eaGetKetQua()) veEA(); else chayEA();
     } else {
-      veEA(); // xoá drawing nếu không hỗ trợ
+      veEA();
     }
   } catch (e) {
     if (toi === phien) datTrangThai(e.message, 'err');
@@ -2106,10 +2106,14 @@ document.getElementById('btnCaiDat').onclick = () => { panel.hidden = !panel.hid
 document.getElementById('btnDong').onclick = () => { panel.hidden = true; };
 panel.onclick = (e) => { if (e.target === panel) panel.hidden = true; };
 
-// ---------- 11. EA L5 ----------
+// ---------- 11. EA L5 / F1 ----------
 const EA_MAUS = { D: '#f5c518', H4: '#00bcd4', H8: '#ab47bc', H12: '#ff7043', Trap: '#66bb6a' };
 const EA_LUONGS = ['D', 'H4', 'H8', 'H12', 'Trap'];
 const EA_MA_HO_TRO = ['BTCUSDT', 'ETHUSDT', 'PAXGUSDT'];
+
+const EA_F1_MAUS = { H2: '#f0a030', H4: '#4fc3f7', D: '#d65db1' };
+const EA_F1_LUONGS = ['H2', 'H4', 'D'];
+const EA_F1_DEFAULT = { H2: true, H4: true, D: true };
 
 const EA_S1_MAUS = { W: '#f5c518', D: '#00bcd4', '2D': '#ab47bc' };
 const S1_LUONGS = ['W', 'D', '2D'];
@@ -2118,8 +2122,11 @@ let caiDatS1 = Object.assign({}, S1_DEFAULT, docBoNho('eaS1', {}));
 
 const EA_DEFAULT = { on: false, D: true, H4: true, H8: true, H12: true, Trap: true, entry: true, sltp: true, pnl: true, hist: true, bts: true, ds: false };
 let caiDatEA = Object.assign({}, EA_DEFAULT, docBoNho('ea', {}));
+let caiDatF1 = Object.assign({}, EA_F1_DEFAULT, docBoNho('eaF1', {}));
+let eaLoai = docBoNho('eaLoai', 'L5'); // 'L5' hoặc 'F1' (chỉ dùng cho crypto)
 
-let eaKetQua = {};        // { 'BTCUSDT': { trades, status, thongKe } }
+let eaKetQua = {};        // { 'BTCUSDT': { trades, status, thongKe } } — L5 / S1
+let eaF1KetQua = {};      // { 'BTCUSDT': { trades, status, thongKe } } — F1
 let eaTimerRefresh = null;
 let eaHistMarkers = null;  // markers lịch sử (LC.createSeriesMarkers)
 let eaHistPrim = null;     // primitive vẽ đường nối entry-exit
@@ -2128,9 +2135,23 @@ let eaLoading = false;
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
-function eaLegEnabled(leg) { return eaIsVN() ? !!caiDatS1[leg] : !!caiDatEA[leg]; }
-function eaLegMau(leg) { return eaIsVN() ? (EA_S1_MAUS[leg] || '#aaa') : (EA_MAUS[leg] || '#aaa'); }
-function eaLuongs() { return eaIsVN() ? S1_LUONGS : EA_LUONGS; }
+function eaIsF1() { return !eaIsVN() && eaLoai === 'F1'; }
+function eaGetKetQua() { return eaIsF1() ? eaF1KetQua[maHienTai] : eaKetQua[maHienTai]; }
+function eaLegEnabled(leg) {
+  if (eaIsVN()) return !!caiDatS1[leg];
+  if (eaIsF1()) return !!caiDatF1[leg];
+  return !!caiDatEA[leg];
+}
+function eaLegMau(leg) {
+  if (eaIsVN()) return EA_S1_MAUS[leg] || '#aaa';
+  if (eaIsF1()) return EA_F1_MAUS[leg] || '#aaa';
+  return EA_MAUS[leg] || '#aaa';
+}
+function eaLuongs() {
+  if (eaIsVN()) return S1_LUONGS;
+  if (eaIsF1()) return EA_F1_LUONGS;
+  return EA_LUONGS;
+}
 function eaFmtNgay(ms) {
   if (!ms) return '—';
   const d = new Date(ms);
@@ -2360,6 +2381,7 @@ function eaCapNhatPnl() {
   eaOpenPrim.updatePnl(cur, caiDatEA.pnl);
 }
 
+
 // Đường đoạn: lệnh đang mở (entry) + SL + buy limit chờ — dùng primitive thay createPriceLine
 function eaVeOpenLines(kq) {
   if (eaOpenPrim) { try { nenSeries.detachPrimitive(eaOpenPrim); } catch (e) {} eaOpenPrim = null; }
@@ -2380,7 +2402,7 @@ function eaVeOpenLines(kq) {
       slItems.push({ price: lastSL, label: `SL (${tr.leg})`, color: '#ef5350' });
     }
     // Buy Limit chờ (L5 only)
-    if (!eaIsVN()) {
+    if (!eaIsVN() && !eaIsF1()) {
       const legs = kq.status?.legs || {};
       for (const l of EA_LUONGS) {
         if (!caiDatEA[l]) continue;
@@ -2405,6 +2427,43 @@ function eaVeStatus(kq) {
   if (!el) return;
   if (!kq || !caiDatEA.bts) { el.style.display = 'none'; return; }
   el.style.left = '8px';
+
+  if (eaIsF1()) {
+    const legs = kq.status?.legs || {};
+    const tk = kq.thongKe || {};
+    const fmtLeg = (l) => {
+      if (!caiDatF1[l]) return '';
+      const d = legs[l];
+      let txt = '';
+      if (d?.pos) txt = `Mở @${dinhDangGia(d.pos.price)} · SL ${dinhDangGia(d.pos.sl)}`;
+      else txt = 'Không có lệnh';
+      if (l !== 'D') {
+        const cb = d?.coBo;
+        if (cb != null) txt += cb ? ' · Co bó ✓' : ' · Co bó ✗';
+      }
+      const t = tk[l];
+      const tkStr = t ? ` <span style="color:#888;font-size:9px">(${t.total}l·${t.thang}w·${t.tongPct>=0?'+':''}${t.tongPct}%)</span>` : '';
+      return `<div class="eas-row"><span class="eas-leg" style="color:${EA_F1_MAUS[l]}">${l}</span><span>${txt}${tkStr}</span></div>`;
+    };
+    const ngay = legs.D?.ngay;
+    let ngayStr = '—';
+    if (ngay) {
+      const bbS = ngay.vungBB ? `✓(w3 ${ngay.w3?.toFixed(1)}%)` : `✗(w3 ${ngay.w3?.toFixed(1)}%)`;
+      const smaS = ngay.vungSMA ? '✓' : '✗';
+      const rsiS = ngay.rsi != null ? ngay.rsi.toFixed(1) : '—';
+      const lS = Array.isArray(ngay.L) && ngay.L.length === 4 ? ngay.L.map(x=>x.toFixed(1)).join('/') : '—';
+      ngayStr = `BB ${bbS} · SMA ${smaS} · RSI ${rsiS} · L ${lS}`;
+    }
+    el.innerHTML =
+      `<div class="eas-head"><span>EA F1</span><button class="eas-collapse" onclick="this.closest('.ea-status').classList.toggle('eas-thu')">◀</button></div>` +
+      `<div class="eas-body">` +
+      EA_F1_LUONGS.map(fmtLeg).join('') +
+      `<div class="eas-row"><span class="eas-leg" style="color:#aaa">Ngày D</span><span style="font-size:10px">${ngayStr}</span></div>` +
+      `</div>`;
+    el.style.display = '';
+    return;
+  }
+
   const bias = kq.status?.bias || {};
   const biasStr = bias.valid
     ? `✓ ${bias.method || ''} ${bias.start ? '(' + eaFmtNgay(bias.start).slice(0, 5) + ')' : ''}`
@@ -2507,7 +2566,7 @@ function veEA() {
     document.getElementById('eaTrades').style.display = 'none';
     return;
   }
-  const kq = eaKetQua[maHienTai];
+  const kq = eaGetKetQua();
   if (!kq) return;
   eaVeHist(kq);
   eaVeOpenLines(kq);
@@ -2520,12 +2579,18 @@ async function chayEA() {
   eaLoading = true;
   try {
     const isVN = eaIsVN();
+    const isF1 = eaIsF1();
+    let tenEA = 'EA L5';
     if (isVN) {
       eaKetQua[maHienTai] = await S1Data.chayS1(maHienTai, msg => datTrangThai(msg));
+      tenEA = 'EA S1';
+    } else if (isF1) {
+      eaF1KetQua[maHienTai] = await F1Data.chayF1(maHienTai, msg => datTrangThai(msg));
+      tenEA = 'EA F1';
     } else {
       eaKetQua[maHienTai] = await L5Data.chayL5(maHienTai, msg => datTrangThai(msg));
     }
-    datTrangThai((isVN ? 'EA S1' : 'EA L5') + ' sẵn sàng', 'ok');
+    datTrangThai(tenEA + ' sẵn sàng', 'ok');
     veEA();
   } catch (e) {
     datTrangThai('Lỗi EA: ' + e.message, 'err');
@@ -2543,7 +2608,8 @@ function eaLapLichLamMoi() {
   const delay = Math.max(next - now, 10000);
   eaTimerRefresh = setTimeout(async () => {
     if (caiDatEA.on && eaCoHoTro()) {
-      delete eaKetQua[maHienTai];
+      if (eaIsF1()) delete eaF1KetQua[maHienTai];
+      else delete eaKetQua[maHienTai];
       await napBieuDo();
       await chayEA();
     }
@@ -2560,12 +2626,23 @@ function veNutEA() {
   const note = document.getElementById('eaVNNote');
   if (note) note.style.display = 'none';
   const isVN = eaIsVN();
+  const isF1 = eaIsF1();
   const l5 = document.getElementById('eaL5Luong');
   const s1 = document.getElementById('eaS1Luong');
-  if (l5) l5.style.display = isVN ? 'none' : '';
+  const f1 = document.getElementById('eaF1Luong');
+  const loaiRow = document.getElementById('eaLoaiRow');
+  if (l5) l5.style.display = (!isVN && !isF1) ? '' : 'none';
   if (s1) s1.style.display = isVN ? '' : 'none';
+  if (f1) f1.style.display = isF1 ? '' : 'none';
+  if (loaiRow) {
+    loaiRow.style.display = isVN ? 'none' : 'flex';
+    // Cập nhật trạng thái active cho các nút loại
+    loaiRow.querySelectorAll('[data-loai]').forEach(b => {
+      b.classList.toggle('active', b.dataset.loai === eaLoai);
+    });
+  }
   const nameEl = document.querySelector('#eaL5Row span');
-  if (nameEl) nameEl.textContent = isVN ? 'S1' : 'L5';
+  if (nameEl) nameEl.textContent = isVN ? 'S1' : (isF1 ? 'EA' : 'L5');
 }
 
 function khoiDongEAPanel() {
@@ -2580,11 +2657,38 @@ function khoiDongEAPanel() {
     document.getElementById('eaTrades').style.display = 'none';
   };
 
+  // Loại EA: L5 / F1 (chỉ cho crypto)
+  const loaiRow = document.getElementById('eaLoaiRow');
+  if (loaiRow) {
+    ['L5', 'F1'].forEach(loai => {
+      const b = document.createElement('button');
+      b.className = 'cobo-btn' + (eaLoai === loai ? ' active' : '');
+      b.dataset.loai = loai;
+      b.textContent = loai;
+      b.onclick = async () => {
+        if (eaLoai === loai) return;
+        eaLoai = loai;
+        ghiBoNho('eaLoai', eaLoai);
+        veNutEA();
+        if (caiDatEA.on && !eaGetKetQua() && !eaIsVN()) {
+          await chayEA();
+        } else {
+          veEA();
+        }
+      };
+      loaiRow.appendChild(b);
+    });
+  }
+
   // Sync checkboxes from state
   document.getElementById('eaL5On').checked = caiDatEA.on;
   EA_LUONGS.forEach(l => {
     const cb = document.querySelector(`.ea-luong[data-leg="${l}"]`);
     if (cb) cb.checked = !!caiDatEA[l];
+  });
+  EA_F1_LUONGS.forEach(l => {
+    const cb = document.querySelector(`.ea-f1-luong[data-leg="${l}"]`);
+    if (cb) cb.checked = !!caiDatF1[l];
   });
   document.getElementById('eaShowEntry').checked = !!caiDatEA.entry;
   document.getElementById('eaShowSLTP').checked = !!caiDatEA.sltp;
@@ -2597,7 +2701,7 @@ function khoiDongEAPanel() {
   document.getElementById('eaL5On').onchange = async (e) => {
     caiDatEA.on = e.target.checked;
     ghiBoNho('ea', caiDatEA);
-    if (caiDatEA.on && !eaKetQua[maHienTai]) {
+    if (caiDatEA.on && !eaGetKetQua()) {
       await chayEA();
     } else {
       veEA();
@@ -2620,6 +2724,15 @@ function khoiDongEAPanel() {
     cb.onchange = (e) => {
       caiDatS1[e.target.dataset.leg] = e.target.checked;
       ghiBoNho('eaS1', caiDatS1);
+      veEA();
+    };
+  });
+
+  // Leg toggles F1
+  document.querySelectorAll('.ea-f1-luong').forEach(cb => {
+    cb.onchange = (e) => {
+      caiDatF1[e.target.dataset.leg] = e.target.checked;
+      ghiBoNho('eaF1', caiDatF1);
       veEA();
     };
   });
@@ -2648,12 +2761,12 @@ function khoiDongEAPanel() {
   document.getElementById('eaShowBTS').onchange = (e) => {
     caiDatEA.bts = e.target.checked;
     ghiBoNho('ea', caiDatEA);
-    eaVeStatus(eaKetQua[maHienTai] || null);
+    eaVeStatus(eaGetKetQua() || null);
   };
   document.getElementById('eaShowDS').onchange = async (e) => {
     caiDatEA.ds = e.target.checked;
     ghiBoNho('ea', caiDatEA);
-    eaVeTrades(eaKetQua[maHienTai] || null);
+    eaVeTrades(eaGetKetQua() || null);
   };
 }
 
