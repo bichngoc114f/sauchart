@@ -1221,8 +1221,8 @@ class CoboPrimitive {
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
               const ts = self._chart.timeScale();
               const H = bitmapSize.height;
-              const barH = Math.max(1, Math.round(3 * vpr));
-              const gap = Math.round(4 * vpr);
+              const barH = Math.max(1, Math.round(5 * vpr));
+              const gap = Math.round(7 * vpr);
               const lr = ts.getVisibleLogicalRange();
               if (!lr) return;
               const iFrom = Math.max(0, Math.floor(lr.from));
@@ -1273,6 +1273,9 @@ class CoboPrimitive {
                     ctx.fillStyle = 'rgba(180,180,180,0.13)';
                     ctx.fillRect(xb, 0, cw, H);
                   }
+                  // Nền tối mỏng để bars nổi bật trên mọi màu nền
+                  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+                  ctx.fillRect(xb, 0, cw, COBO_KHUNG.length * gap + barH);
                   for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
                     if (!(showMask & COBO_KHUNG[ki].bit)) continue;
                     ctx.fillStyle = COBO_KHUNG[ki].mau;
@@ -1312,10 +1315,16 @@ class CoboPrimitive {
                   // Dải 5 màu SMA bên dưới khi có vùng tím/xám (có thành phần SMA)
                   if (cm & 3) {
                     const smaMask = (coboBitmask[i] || 0) & visMask2;
-                    for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
-                      if (!(smaMask & COBO_KHUNG[ki].bit)) continue;
-                      ctx.fillStyle = COBO_KHUNG[ki].mau;
-                      ctx.fillRect(xb, barIdx++ * gap, cw, barH);
+                    if (smaMask) {
+                      const smaStart = barIdx * gap;
+                      const smaCnt = COBO_KHUNG.filter(k => smaMask & k.bit).length;
+                      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+                      ctx.fillRect(xb, smaStart, cw, smaCnt * gap + barH);
+                      for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
+                        if (!(smaMask & COBO_KHUNG[ki].bit)) continue;
+                        ctx.fillStyle = COBO_KHUNG[ki].mau;
+                        ctx.fillRect(xb, barIdx++ * gap, cw, barH);
+                      }
                     }
                   }
                 }
