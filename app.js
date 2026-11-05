@@ -1366,6 +1366,7 @@ function coboTinhBitmask() {
   const kq = coboKetQua[maHienTai];
   const bbKq = coboBBKetQua[maHienTai];
   const khungMs = _coboKhungMs();
+  const D_MS = 86400000;
   for (let i = 0; i < duLieuNen.length; i++) {
     const nenUtcMs = (duLieuNen[i].time - LECH_GIO) * 1000;
     const nenEndMs = (i+1 < duLieuNen.length)
@@ -1380,13 +1381,17 @@ function coboTinhBitmask() {
       coboBitmask[i] = mask;
     }
     if (bbKq?.zones?.length) {
-      coboBBMask[i] = _coboOverlap(bbKq.zones, nenUtcMs, nenEndMs) ? 1 : 0;
+      // Màu hiện ở phiên D kế tiếp: kiểm tra ngày liền trước (nến D đó đóng mới biết màu)
+      const bbS = nenUtcMs - D_MS, bbE = nenEndMs - D_MS;
+      coboBBMask[i] = _coboOverlap(bbKq.zones, bbS, bbE) ? 1 : 0;
     }
     if (kq && bbKq?.zones) {
-      const dayStartMs = Math.floor(nenUtcMs / 86400000) * 86400000;
+      // Màu hiện ở phiên D kế tiếp: dùng bbS/bbE (lùi 1 ngày) thay nenUtcMs/nenEndMs
+      const bbS = nenUtcMs - D_MS, bbE = nenEndMs - D_MS;
+      const dayStartMs = Math.floor(bbS / D_MS) * D_MS;
       let combBits = 0;
-      for (let dMs = dayStartMs; dMs < nenEndMs; dMs += 86400000) {
-        const dayEnd = dMs + 86400000;
+      for (let dMs = dayStartMs; dMs < bbE; dMs += D_MS) {
+        const dayEnd = dMs + D_MS;
         let smaFlag = false;
         for (const k of COBO_KHUNG) {
           if (!kq[k.id]?.zones?.length) continue;
@@ -1498,7 +1503,8 @@ function _coboVeBangBB(el) {
   const fPct = (n, d) => d > 0 ? (n/d*100).toFixed(1)+'%' : '—';
   el.innerHTML = `<div style="font-size:12px;padding:4px 0">` +
     `<span style="color:#e8c547">■</span> Co bó BB: <b>${bbCnt}</b> ngày D` +
-    ` <span style="color:#888">(${fPct(bbCnt, totalD)} / ${totalD} ngày có dữ liệu)</span></div>`;
+    ` <span style="color:#888">(${fPct(bbCnt, totalD)} / ${totalD} ngày có dữ liệu)</span></div>` +
+    `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Màu hiện ở phiên D kế tiếp (sau khi nến D đủ điều kiện đóng)</div>`;
 }
 
 function _coboVeBangComb(el) {
@@ -1518,6 +1524,7 @@ function _coboVeBangComb(el) {
   html += `<tr class="cobo-tot"><td>Tổng</td><td>${total}</td><td>${fPct(total,totalD)}</td></tr>`;
   html += `</tbody></table>`;
   html += `<div style="color:#888;font-size:11px;padding:2px 0">/ ${totalD} ngày D có dữ liệu</div>`;
+  html += `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Màu hiện ở phiên D kế tiếp (sau khi nến D đủ điều kiện đóng)</div>`;
   el.innerHTML = html;
 }
 
