@@ -1272,11 +1272,11 @@ class CoboPrimitive {
                   } else {
                     ctx.fillStyle = 'rgba(180,180,180,0.13)';
                     ctx.fillRect(xb, 0, cw, H);
-                    for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
-                      if (!(showMask & COBO_KHUNG[ki].bit)) continue;
-                      ctx.fillStyle = COBO_KHUNG[ki].mau;
-                      ctx.fillRect(xb, ki * gap, cw, barH);
-                    }
+                  }
+                  for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
+                    if (!(showMask & COBO_KHUNG[ki].bit)) continue;
+                    ctx.fillStyle = COBO_KHUNG[ki].mau;
+                    ctx.fillRect(xb, ki * gap, cw, barH);
                   }
                 }
               } else if (coboLoai === 1) {
@@ -1292,6 +1292,7 @@ class CoboPrimitive {
                 }
               } else {
                 const C_TIM = '#d65db1', C_XAM = '#8a8f98', C_VANG = '#e8c547';
+                const visMask2 = COBO_KHUNG.reduce((a, k) => coboVisBat[k.id] ? a|k.bit : a, 0);
                 for (let i = iFrom; i <= iTo; i++) {
                   let cm = coboCombMask[i] || 0;
                   if (!cm) continue;
@@ -1308,6 +1309,15 @@ class CoboPrimitive {
                   if (cm & 1) { ctx.fillStyle = C_TIM;  ctx.fillRect(xb, barIdx++ * gap, cw, barH); }
                   if (cm & 2) { ctx.fillStyle = C_XAM;  ctx.fillRect(xb, barIdx++ * gap, cw, barH); }
                   if (cm & 4) { ctx.fillStyle = C_VANG; ctx.fillRect(xb, barIdx++ * gap, cw, barH); }
+                  // Dải 5 màu SMA bên dưới khi có vùng tím/xám (có thành phần SMA)
+                  if (cm & 3) {
+                    const smaMask = (coboBitmask[i] || 0) & visMask2;
+                    for (let ki = 0; ki < COBO_KHUNG.length; ki++) {
+                      if (!(smaMask & COBO_KHUNG[ki].bit)) continue;
+                      ctx.fillStyle = COBO_KHUNG[ki].mau;
+                      ctx.fillRect(xb, barIdx++ * gap, cw, barH);
+                    }
+                  }
                 }
               }
 
