@@ -1,8 +1,8 @@
 /* Bảng màu tối giống TradingView */
 :root {
-  --bg: #1d1f28;
-  --panel: #1e222d;
-  --border: #2a2e39;
+  --bg: #0e1015;
+  --panel: #161a22;
+  --border: #232833;
   --text: #d1d4dc;
   --muted: #787b86;
   --up: #26a69a;
@@ -113,7 +113,7 @@ button { font-family: inherit; }
   text-align: center;
   padding: 1px 4px 2px;
   color: #b2b5be;
-  background: rgba(29,31,40,0.88);
+  background: rgba(14,16,21,0.88);
   white-space: nowrap;
   line-height: 1.35;
 }
@@ -189,7 +189,7 @@ button { font-family: inherit; }
   position: absolute;
   top: 36px;
   z-index: 9;
-  background: rgba(29,31,40,0.92);
+  background: rgba(14,16,21,0.92);
   border: 1px solid var(--border);
   border-radius: 0 6px 6px 0;
   font-size: 11px;
@@ -430,7 +430,7 @@ button { font-family: inherit; }
   top: 8px;
   right: 56px;
   z-index: 20;
-  background: rgba(29,31,40,0.8);
+  background: rgba(14,16,21,0.8);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--muted);
@@ -453,7 +453,7 @@ button { font-family: inherit; }
   position: absolute;
   right: 56px;
   z-index: 20;
-  background: rgba(29,31,40,0.8);
+  background: rgba(14,16,21,0.8);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--muted);
@@ -472,7 +472,7 @@ button { font-family: inherit; }
 .popup-rsi-nhom {
   position: absolute;
   right: 56px;
-  background: rgba(29,31,40,0.95);
+  background: rgba(14,16,21,0.95);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 12px;

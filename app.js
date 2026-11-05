@@ -88,7 +88,7 @@ const LECH_GIO = 7 * 60 * 60; // Binance trả giờ UTC → cộng 7 tiếng ch
 
 // Màu các đường — lấy theo mẫu TradingView của Sâu (đổi tuỳ ý)
 const MAU = {
-  nen: '#1d1f28',                 // màu nền biểu đồ
+  nen: '#0e1015',                 // màu nền biểu đồ
   tang: '#ffffff', giam: '#9e9e9e', // nến tăng trắng, nến giảm xám
   volTang: 'rgba(38,166,154,0.5)', volGiam: 'rgba(239,83,80,0.5)',
   sma20: '#f7c948', sma55: '#e91e63', ema200: '#ffffff', bb: '#2962ff',
@@ -190,7 +190,7 @@ let blMarkers = null;
 const LC = LightweightCharts;
 const chart = LC.createChart(document.getElementById('chart'), {
   autoSize: true,
-  layout: { background: { color: MAU.nen }, textColor: '#b2b5be', panes: { separatorColor: '#d1d4dc' }, attributionLogo: false },
+  layout: { background: { color: MAU.nen }, textColor: '#b2b5be', panes: { separatorColor: '#2a2f3a' }, attributionLogo: false },
   grid: { vertLines: { visible: false }, horzLines: { visible: false } }, // không kẻ lưới, giống mẫu
   crosshair: { mode: LC.CrosshairMode.Normal },
   leftPriceScale: { visible: false },
@@ -1376,11 +1376,11 @@ class CoboPrimitive {
                   if (coboTabSel === 0 && !coboComboSel) {
                     for (const k of COBO_KHUNG) {
                       if (!(showMask & k.bit)) continue;
-                      ctx.fillStyle = k.mau + '2e';
+                      ctx.fillStyle = k.mau + '14';
                       ctx.fillRect(xb, 0, cw, H);
                     }
                   } else {
-                    ctx.fillStyle = 'rgba(180,180,180,0.13)';
+                    ctx.fillStyle = 'rgba(180,180,180,0.05)';
                     ctx.fillRect(xb, 0, cw, H);
                   }
                   // Nền tối mỏng để bars nổi bật trên mọi màu nền
@@ -1398,7 +1398,7 @@ class CoboPrimitive {
                   if (!coboBBMask[i]) continue;
                   const r = _xbcw(i); if (!r) continue;
                   const { xb, cw } = r;
-                  ctx.fillStyle = BBM + '2e';
+                  ctx.fillStyle = BBM + '14';
                   ctx.fillRect(xb, 0, cw, H);
                   ctx.fillStyle = BBM;
                   ctx.fillRect(xb, 0, cw, barH);
@@ -1418,7 +1418,7 @@ class CoboPrimitive {
                   const { xb, cw } = r;
                   // Nền mờ toàn chiều cao
                   const bgC = (cm & 1) ? C_TIM : (cm & 2) ? C_XAM : C_VANG;
-                  ctx.fillStyle = bgC + '2e';
+                  ctx.fillStyle = bgC + '14';
                   ctx.fillRect(xb, 0, cw, H);
                   const hasSma = !!(cm & 3);
                   // Nền tối phía sau bars: tím/xám → cover 1+N_KH slots; vàng → 1 slot
