@@ -2293,9 +2293,9 @@ const EA_MAUS = { D: '#f5c518', H4: '#00bcd4', H8: '#ab47bc', H12: '#ff7043', Tr
 const EA_LUONGS = ['D', 'H4', 'H8', 'H12', 'Trap'];
 const EA_MA_HO_TRO = ['BTCUSDT', 'ETHUSDT', 'PAXGUSDT'];
 
-const EA_F1_MAUS = { H2: '#f0a030', H4: '#4fc3f7', D: '#d65db1' };
-const EA_F1_LUONGS = ['H2', 'H4', 'D'];
-const EA_F1_DEFAULT = { H2: true, H4: true, D: true };
+const EA_F2_MAUS = { H2: '#f0a030', H4: '#4fc3f7', D: '#d65db1' };
+const EA_F2_LUONGS = ['H2', 'H4', 'D'];
+const EA_F2_DEFAULT = { H2: true, H4: true, D: true };
 
 const EA_S1_MAUS = { W: '#f5c518', D: '#00bcd4', '2D': '#ab47bc' };
 const S1_LUONGS = ['W', 'D', '2D'];
@@ -2304,11 +2304,12 @@ let caiDatS1 = Object.assign({}, S1_DEFAULT, docBoNho('eaS1', {}));
 
 const EA_DEFAULT = { on: false, D: true, H4: true, H8: true, H12: true, Trap: true, entry: true, sltp: true, pnl: true, hist: true, bts: true, ds: false };
 let caiDatEA = Object.assign({}, EA_DEFAULT, docBoNho('ea', {}));
-let caiDatF1 = Object.assign({}, EA_F1_DEFAULT, docBoNho('eaF1', {}));
-let eaLoai = docBoNho('eaLoai', 'L5'); // 'L5' hoặc 'F1' (chỉ dùng cho crypto)
+let caiDatF1 = Object.assign({}, EA_F2_DEFAULT, docBoNho('eaF1', {}));
+let eaLoai = docBoNho('eaLoai', 'L5'); // 'L5' hoặc 'F2' (chỉ dùng cho crypto)
+if (eaLoai === 'F1') { eaLoai = 'F2'; ghiBoNho('eaLoai', 'F2'); }
 
 let eaKetQua = {};        // { 'BTCUSDT': { trades, status, thongKe } } — L5 / S1
-let eaF1KetQua = {};      // { 'BTCUSDT': { trades, status, thongKe } } — F1
+let eaF2KetQua = {};      // { 'BTCUSDT': { trades, status, thongKe } } — F2
 let eaTimerRefresh = null;
 let eaHistMarkers = null;  // markers lịch sử (LC.createSeriesMarkers)
 let eaHistPrim = null;     // primitive vẽ đường nối entry-exit
@@ -2317,21 +2318,21 @@ let eaLoading = false;
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
-function eaIsF1() { return !eaIsVN() && eaLoai === 'F1'; }
-function eaGetKetQua() { return eaIsF1() ? eaF1KetQua[maHienTai] : eaKetQua[maHienTai]; }
+function eaIsF2() { return !eaIsVN() && eaLoai === 'F2'; }
+function eaGetKetQua() { return eaIsF2() ? eaF2KetQua[maHienTai] : eaKetQua[maHienTai]; }
 function eaLegEnabled(leg) {
   if (eaIsVN()) return !!caiDatS1[leg];
-  if (eaIsF1()) return !!caiDatF1[leg];
+  if (eaIsF2()) return !!caiDatF1[leg];
   return !!caiDatEA[leg];
 }
 function eaLegMau(leg) {
   if (eaIsVN()) return EA_S1_MAUS[leg] || '#aaa';
-  if (eaIsF1()) return EA_F1_MAUS[leg] || '#aaa';
+  if (eaIsF2()) return EA_F2_MAUS[leg] || '#aaa';
   return EA_MAUS[leg] || '#aaa';
 }
 function eaLuongs() {
   if (eaIsVN()) return S1_LUONGS;
-  if (eaIsF1()) return EA_F1_LUONGS;
+  if (eaIsF2()) return EA_F2_LUONGS;
   return EA_LUONGS;
 }
 function eaFmtNgay(ms) {
@@ -2584,7 +2585,7 @@ function eaVeOpenLines(kq) {
       slItems.push({ price: lastSL, label: `SL (${tr.leg})`, color: '#ef5350' });
     }
     // Buy Limit chờ (L5 only)
-    if (!eaIsVN() && !eaIsF1()) {
+    if (!eaIsVN() && !eaIsF2()) {
       const legs = kq.status?.legs || {};
       for (const l of EA_LUONGS) {
         if (!caiDatEA[l]) continue;
@@ -2610,7 +2611,7 @@ function eaVeStatus(kq) {
   if (!kq || !caiDatEA.bts) { el.style.display = 'none'; return; }
   el.style.left = '8px';
 
-  if (eaIsF1()) {
+  if (eaIsF2()) {
     const legs = kq.status?.legs || {};
     const tk = kq.thongKe || {};
     const fmtLeg = (l) => {
@@ -2619,13 +2620,14 @@ function eaVeStatus(kq) {
       let txt = '';
       if (d?.pos) txt = `Mở @${dinhDangGia(d.pos.price)} · SL ${dinhDangGia(d.pos.sl)}`;
       else txt = 'Không có lệnh';
+      if (l === 'D' && d?.cho) txt += ` · ⏳ chờ rào ${d.cho.khung} (SL dự kiến ${dinhDangGia(d.cho.sl)})`;
       if (l !== 'D') {
         const cb = d?.coBo;
         if (cb != null) txt += cb ? ' · Co bó ✓' : ' · Co bó ✗';
       }
       const t = tk[l];
       const tkStr = t ? ` <span style="color:#888;font-size:9px">(${t.total}l·${t.thang}w·${t.tongPct>=0?'+':''}${t.tongPct}%)</span>` : '';
-      return `<div class="eas-row"><span class="eas-leg" style="color:${EA_F1_MAUS[l]}">${l}</span><span>${txt}${tkStr}</span></div>`;
+      return `<div class="eas-row"><span class="eas-leg" style="color:${EA_F2_MAUS[l]}">${l}</span><span>${txt}${tkStr}</span></div>`;
     };
     const ngay = legs.D?.ngay;
     let ngayStr = '—';
@@ -2634,12 +2636,12 @@ function eaVeStatus(kq) {
       const smaS = ngay.vungSMA ? '✓' : '✗';
       const rsiS = ngay.rsi != null ? ngay.rsi.toFixed(1) : '—';
       const lS = Array.isArray(ngay.L) && ngay.L.length === 4 ? ngay.L.map(x=>x.toFixed(1)).join('/') : '—';
-      ngayStr = `BB ${bbS} · SMA ${smaS} · RSI ${rsiS} · L ${lS}`;
+      ngayStr = `BB ${bbS} · SMA ${smaS} · RSI ${rsiS} · L ${lS}${ngay.cumThap ? ` · cụm thấp nhất ${ngay.cumThap}` : ''}`;
     }
     el.innerHTML =
-      `<div class="eas-head"><span>EA F1</span><button class="eas-collapse" onclick="this.closest('.ea-status').classList.toggle('eas-thu')">◀</button></div>` +
+      `<div class="eas-head"><span>EA F2</span><button class="eas-collapse" onclick="this.closest('.ea-status').classList.toggle('eas-thu')">◀</button></div>` +
       `<div class="eas-body">` +
-      EA_F1_LUONGS.map(fmtLeg).join('') +
+      EA_F2_LUONGS.map(fmtLeg).join('') +
       `<div class="eas-row"><span class="eas-leg" style="color:#aaa">Ngày D</span><span style="font-size:10px">${ngayStr}</span></div>` +
       `</div>`;
     el.style.display = '';
@@ -2761,14 +2763,14 @@ async function chayEA() {
   eaLoading = true;
   try {
     const isVN = eaIsVN();
-    const isF1 = eaIsF1();
+    const isF1 = eaIsF2();
     let tenEA = 'EA L5';
     if (isVN) {
       eaKetQua[maHienTai] = await S1Data.chayS1(maHienTai, msg => datTrangThai(msg));
       tenEA = 'EA S1';
     } else if (isF1) {
-      eaF1KetQua[maHienTai] = await F1Data.chayF1(maHienTai, msg => datTrangThai(msg));
-      tenEA = 'EA F1';
+      eaF2KetQua[maHienTai] = await F2Data.chayF2(maHienTai, msg => datTrangThai(msg));
+      tenEA = 'EA F2';
     } else {
       eaKetQua[maHienTai] = await L5Data.chayL5(maHienTai, msg => datTrangThai(msg));
     }
@@ -2790,7 +2792,7 @@ function eaLapLichLamMoi() {
   const delay = Math.max(next - now, 10000);
   eaTimerRefresh = setTimeout(async () => {
     if (caiDatEA.on && eaCoHoTro()) {
-      if (eaIsF1()) delete eaF1KetQua[maHienTai];
+      if (eaIsF2()) delete eaF2KetQua[maHienTai];
       else delete eaKetQua[maHienTai];
       await napBieuDo();
       await chayEA();
@@ -2808,7 +2810,7 @@ function veNutEA() {
   const note = document.getElementById('eaVNNote');
   if (note) note.style.display = 'none';
   const isVN = eaIsVN();
-  const isF1 = eaIsF1();
+  const isF1 = eaIsF2();
   const l5 = document.getElementById('eaL5Luong');
   const s1 = document.getElementById('eaS1Luong');
   const f1 = document.getElementById('eaF1Luong');
@@ -2839,10 +2841,10 @@ function khoiDongEAPanel() {
     document.getElementById('eaTrades').style.display = 'none';
   };
 
-  // Loại EA: L5 / F1 (chỉ cho crypto)
+  // Loại EA: L5 / F2 (chỉ cho crypto)
   const loaiRow = document.getElementById('eaLoaiRow');
   if (loaiRow) {
-    ['L5', 'F1'].forEach(loai => {
+    ['L5', 'F2'].forEach(loai => {
       const b = document.createElement('button');
       b.className = 'cobo-btn' + (eaLoai === loai ? ' active' : '');
       b.dataset.loai = loai;
@@ -2868,7 +2870,7 @@ function khoiDongEAPanel() {
     const cb = document.querySelector(`.ea-luong[data-leg="${l}"]`);
     if (cb) cb.checked = !!caiDatEA[l];
   });
-  EA_F1_LUONGS.forEach(l => {
+  EA_F2_LUONGS.forEach(l => {
     const cb = document.querySelector(`.ea-f1-luong[data-leg="${l}"]`);
     if (cb) cb.checked = !!caiDatF1[l];
   });
