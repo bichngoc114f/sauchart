@@ -1,8 +1,8 @@
 // =====================================================================
-//  l5-thong-bao.cjs — GỬI THÔNG BÁO TELEGRAM CHO EA L5 + EA F1 (crypto, chạy trên GitHub Actions)
+//  l5-thong-bao.cjs — GỬI THÔNG BÁO TELEGRAM CHO EA L5 + EA F2 (crypto, chạy trên GitHub Actions)
 //  Chạy MỖI GIỜ:
 //   1. Tải nến Binance + chạy L5 cho BTCUSDT, ETHUSDT, PAXGUSDT (dùng đúng ea-l5-data.js + ea-l5-engine.js như app).
-//      Chạy thêm EA F1 cho BTCUSDT (ea-f1-engine.js + ea-f1-data.js, luồng H2, H4, D) — thêm 04/11/2026.
+//      Chạy thêm EA F2 cho BTCUSDT (ea-f2-engine.js + ea-f2-data.js, luồng H2, H4, D) — F1 04/11, đổi sang F2 05/11/2026.
 //   2. Lệnh nào VÀO hoặc THOÁT kể từ lần chạy trước → gửi tin ngay.
 //   3. Lần chạy đầu tiên sau 07:00 giờ VN mỗi ngày (nến D vừa đóng) → gửi tin TÓM TẮT.
 //  Trạng thái (lần chạy trước, ngày đã tóm tắt) lưu ở thư mục .l5-state (GitHub cache giữ giữa các lần chạy).
@@ -12,9 +12,9 @@
 const fs = require('fs');
 globalThis.L5 = require('./ea-l5-engine.js');
 require('./ea-l5-data.js'); // gắn globalThis.L5Data (không có IndexedDB → tự chạy không cache)
-globalThis.F1 = require('./ea-f1-engine.js');
-require('./ea-f1-data.js'); // gắn globalThis.F1Data
-const DS_F1 = [['BTCUSDT', 'BTC']]; // EA F1 chỉ chạy BTC
+globalThis.F2 = require('./ea-f2-engine.js');
+require('./ea-f2-data.js'); // gắn globalThis.F2Data
+const DS_F1 = [['BTCUSDT', 'BTC']]; // EA F2 chỉ chạy BTC
 
 const DS_MA = [['BTCUSDT', 'BTC'], ['ETHUSDT', 'ETH'], ['PAXGUSDT', 'Vàng (PAXG)']];
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
@@ -49,7 +49,7 @@ async function giaHienTai(ma) {
 // Lệnh vào / thoát chưa báo. Lưu ý: giờ vào/thoát của EA = mốc đầu nến H1 kế tiếp, nhưng
 // chỉ tính được khi nến H1 đó ĐÓNG (trễ tới 1 giờ) → không lọc theo "từ lần chạy trước"
 // mà nhớ danh sách sự kiện ĐÃ BÁO (tt.daBao) và báo mọi sự kiện mới trong 48 giờ qua.
-// ea = 'L5' | 'F1' (ghi trước tên luồng)
+// ea = 'L5' | 'F2' (ghi trước tên luồng)
 function suKien(ma, ten, kq, canBao, ea = 'L5') {
   const out = [];
   for (const t of kq.trades) {
@@ -81,7 +81,7 @@ function tomTat(ds, dsF1 = []) {
       out.push(`  ${t.leg} vào ${gioVN(t.entryT)} @${gia(t.entry)} · SL ${sl === null ? '–' : gia(sl)}${lai}`);
     }
   }
-  if (dsF1.length) out.push('', '<b>— F1 —</b>');
+  if (dsF1.length) out.push('', '<b>— F2 —</b>');
   for (const x of dsF1) {
     const lg = x.kq.status.legs;
     out.push(`<b>${x.ten}</b> giá ${x.gia ? gia(x.gia) : '–'}`);
@@ -93,6 +93,8 @@ function tomTat(ds, dsF1 = []) {
         const n = lg.D && lg.D.ngay;
         const ten = !n ? 'Không co bó' : n.vungBB && n.vungSMA ? 'Co bó tím' : n.vungBB ? 'Co bó vàng (chỉ BB)' : n.vungSMA ? 'Co bó xám (chỉ SMA)' : 'Không co bó';
         vung = ten + (n ? ` - ${n.w3.toFixed(2)}%` : '');
+        const ch = lg.D.cho;
+        if (ch) vung += ` · ⏳ chờ rào ${ch.khung} (SL dự kiến ${gia(ch.sl)})`;
       } else {
         const w = lg[leg].w;
         vung = (lg[leg].coBo ? 'Trong vùng co bó' : 'Không trong vùng co bó') + (w == null ? '' : ` - ${w.toFixed(2)}%`);
@@ -125,23 +127,23 @@ async function main() {
       ds.push({ ma, ten, kq, gia: await giaHienTai(ma) });
     } catch (e) { loi.push(ten); console.error(ma, e.message); }
   }
-  // EA F1 (BTC)
+  // EA F2 (BTC)
   const dsF1 = [];
   for (const [ma, ten] of DS_F1) {
     try {
-      const kq = await F1Data.chayF1(ma, (m) => console.log('F1', ma, m));
+      const kq = await F2Data.chayF2(ma, (m) => console.log('F2', ma, m));
       const x = ds.find((y) => y.ma === ma);
       dsF1.push({ ma, ten, kq, gia: x ? x.gia : await giaHienTai(ma) });
-    } catch (e) { loi.push('F1 ' + ten); console.error('F1', ma, e.message); }
+    } catch (e) { loi.push('F2 ' + ten); console.error('F2', ma, e.message); }
   }
   if (!ds.length && !dsF1.length) {
     // Báo lỗi tối đa 6 giờ/lần để khỏi gửi liên tục
-    if (!tt.baoLoi || now - tt.baoLoi > 6 * H) { await gui('❗ <b>EA L5/F1</b>: không tải được dữ liệu Binance. Có thể máy chủ đang chặn, sẽ tự thử lại mỗi giờ.'); tt.baoLoi = now; }
+    if (!tt.baoLoi || now - tt.baoLoi > 6 * H) { await gui('❗ <b>EA L5/F2</b>: không tải được dữ liệu Binance. Có thể máy chủ đang chặn, sẽ tự thử lại mỗi giờ.'); tt.baoLoi = now; }
     ghiTT(tt); process.exitCode = 1; return;
   }
   // 1. Lệnh vào/thoát mới
   const sk = [...ds.flatMap((x) => suKien(x.ma, x.ten, x.kq, canBao, 'L5')),
-    ...dsF1.flatMap((x) => suKien(x.ma, x.ten, x.kq, canBao, 'F1'))].sort((a, b) => a.t - b.t);
+    ...dsF1.flatMap((x) => suKien(x.ma, x.ten, x.kq, canBao, 'F2'))].sort((a, b) => a.t - b.t);
   if (sk.length) await gui(`<b>⚡ EA — Lệnh mới</b>\n` + sk.map((s) => s.text).join('\n'));
   // 2. Tóm tắt mỗi ngày (lần chạy đầu tiên sau 07:00 VN)
   const homNay = ngayVN(now);
@@ -161,6 +163,6 @@ async function main() {
 }
 main().catch(async (e) => {
   console.error(e);
-  try { await gui('❗ EA (L5/F1) thông báo lỗi: ' + e.message); } catch (_) { /* bỏ qua */ }
+  try { await gui('❗ EA (L5/F2) thông báo lỗi: ' + e.message); } catch (_) { /* bỏ qua */ }
   process.exitCode = 1;
 });
