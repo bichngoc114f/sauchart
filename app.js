@@ -122,7 +122,7 @@ const CHI_BAO = [
 ];
 // Mặc định giống màn hình TradingView của Sâu: VWAP + Volume + RSI
 const MAC_DINH = {
-  cumMA: true, bbGia20: true, bbGia55: true, volume: true,
+  cumMA: false, bbGia20: false, bbGia55: false, volume: false,
   vwapY: true, vwapQ: true, vwapM: true, vwapW: true, rsi: true,
   bl: true, blSlow: true, blToNen: true, blToNenSlow: true, blTamGiac: false,
 };
@@ -147,7 +147,7 @@ let blCaiDat = Object.assign(
 blCaiDat.bl   = Object.assign({ len: 70,  phase: 5, power: 2 }, blCaiDat.bl);
 blCaiDat.slow = Object.assign({ len: 150, phase: 0, power: 2 }, blCaiDat.slow);
 let maHienTai = docBoNho('ma', 'BTCUSDT');
-let khungHienTai = docBoNho('khung', '1h');
+let khungHienTai = docBoNho('khung', '1d');
 if (![...DANH_SACH_MA, ...DANH_SACH_VN].some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
 if (![...KHUNG_GIO, ...KHUNG_GIO_VN].some((x) => x[0] === khungHienTai)) khungHienTai = '1h';
 
@@ -180,7 +180,7 @@ let coboCombMask = [];
 let coboCombSmaMask = [];  // parallel to duLieuNen: per-khung SMA bits của ngày D tạo màu (lùi 1 ngày)
 
 // Hiển thị / layout
-let watchlistThuGon = docBoNho('watchlistThuGon', false);
+let watchlistThuGon = docBoNho('watchlistThuGon', true);
 let phongToKhungGia = docBoNho('phongToKhungGia', false);
 let rsiNhomSeries = { ma: [], bb: [] };
 let rsiNhomBat = Object.assign({ma:true, bb:true}, docBoNho('rsiNhom', {}));
