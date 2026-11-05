@@ -114,6 +114,28 @@ CB.maKy = (utcGiay, ky) => {
   return ngay - ((ngay + 3) % 7);
 };
 
+// JMA – Jurik Moving Average; mồi từ giá đầu tiên, ẩn `len` nến đầu để tránh méo
+CB.jma = (src, len, power = 2, phase = 0) => {
+  const pr = phase < -100 ? 0.5 : phase > 100 ? 2.5 : phase / 100 + 1.5;
+  const beta = 0.45 * (len - 1) / (0.45 * (len - 1) + 2);
+  const alpha = Math.pow(beta, power);
+  let e0 = 0, e1 = 0, e2 = 0, j = 0, dau = true;
+  const raw = src.map((x) => {
+    if (x == null || isNaN(x)) return null;
+    if (dau) { e0 = x; j = x; dau = false; return null; }
+    e0 = (1 - alpha) * x + alpha * e0;
+    e1 = (x - e0) * (1 - beta) + beta * e1;
+    e2 = (e0 + pr * e1 - j) * Math.pow(1 - alpha, 2) + alpha * alpha * e2;
+    j = e2 + j;
+    return j;
+  });
+  let dem = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] !== null) { dem++; if (dem <= len) raw[i] = null; }
+  }
+  return raw;
+};
+
 // bars: [{time, high, low, close, volume}] — time đã cộng lệch múi giờ
 // Trả về mảng {value, dauKy} hoặc null (khi chưa thấy điểm bắt đầu kỳ)
 CB.vwap = (bars, ky, lechGio) => {

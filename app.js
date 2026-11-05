@@ -99,6 +99,8 @@ const MAU = {
   bb20: '#e09020', bb20Dai: 'rgba(224,144,32,0.45)',
   bb55: '#70a850', bb55Dai: 'rgba(112,168,80,0.45)',
   nenQuaMua: 'rgba(76,175,80,0.14)', nenQuaBan: 'rgba(239,83,80,0.14)',
+  // Baseline (JMA)
+  bl: '#f5d742', blSlow: '#9c27b0',
 };
 
 // Danh sách chỉ báo có thể bật/tắt (hiện trong bảng ⚙︎)
@@ -112,11 +114,17 @@ const CHI_BAO = [
   { id: 'bbGia20', nhom: 'Trên giá', ten: 'BB Giá (20, 2.0)', mau: MAU.bb20 },
   { id: 'bbGia55', nhom: 'Trên giá', ten: 'BB Giá (55, 2.1)', mau: MAU.bb55 },
   { id: 'rsi', nhom: 'Khung dưới', ten: 'RSI của Sâu (RSI14 + EMA9, WMA45, BB20, BB55)', mau: MAU.rsi },
+  { id: 'bl',          nhom: 'Baseline', ten: 'Baseline',                               mau: MAU.bl,     blKey: 'bl'   },
+  { id: 'blSlow',      nhom: 'Baseline', ten: 'Slow Baseline',                          mau: MAU.blSlow, blKey: 'slow' },
+  { id: 'blToNen',     nhom: 'Baseline', ten: 'Tô màu nến khi giá cắt Baseline',        mau: ''   },
+  { id: 'blToNenSlow', nhom: 'Baseline', ten: 'Tô màu nến khi giá cắt Slow Baseline',   mau: ''   },
+  { id: 'blTamGiac',   nhom: 'Baseline', ten: 'Tam giác báo cắt',                       mau: ''   },
 ];
 // Mặc định giống màn hình TradingView của Sâu: VWAP + Volume + RSI
 const MAC_DINH = {
   cumMA: true, bbGia20: true, bbGia55: true, volume: true,
   vwapY: true, vwapQ: true, vwapM: true, vwapW: true, rsi: true,
+  bl: true, blSlow: true, blToNen: true, blToNenSlow: true, blTamGiac: false,
 };
 
 // ---------- 2. NHỚ CÀI ĐẶT (lưu trong trình duyệt của từng máy) ----------
@@ -131,6 +139,13 @@ function ghiBoNho(khoa, giaTri) {
 }
 
 let caiDat = Object.assign({}, MAC_DINH, docBoNho('caidat2', {}));
+let blCaiDat = Object.assign(
+  { bl: { len: 70, phase: 5, power: 2 }, slow: { len: 150, phase: 0, power: 2 } },
+  docBoNho('blCaiDat', {})
+);
+// đảm bảo mỗi khoá con cũng có đủ trường
+blCaiDat.bl   = Object.assign({ len: 70,  phase: 5, power: 2 }, blCaiDat.bl);
+blCaiDat.slow = Object.assign({ len: 150, phase: 0, power: 2 }, blCaiDat.slow);
 let maHienTai = docBoNho('ma', 'BTCUSDT');
 let khungHienTai = docBoNho('khung', '1h');
 if (![...DANH_SACH_MA, ...DANH_SACH_VN].some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
@@ -169,6 +184,7 @@ let watchlistThuGon = docBoNho('watchlistThuGon', false);
 let phongToKhungGia = docBoNho('phongToKhungGia', false);
 let rsiNhomSeries = { ma: [], bb: [] };
 let rsiNhomBat = Object.assign({ma:true, bb:true}, docBoNho('rsiNhom', {}));
+let blMarkers = null;
 
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
@@ -211,6 +227,7 @@ const diem = (t, v) => (v == null ? { time: t } : { time: t, value: v });
 
 // Xoá hết chỉ báo cũ và tạo lại theo cài đặt
 function taoSeries() {
+  if (blMarkers) { try { blMarkers.detach(); } catch (e) {} blMarkers = null; }
   S.forEach((x) => chart.removeSeries(x.series));
   S = [];
   const t = (i) => duLieuNen[i].time;
@@ -256,6 +273,10 @@ function taoSeries() {
       return v ? { time: t(i), value: v.value } : { time: t(i) };
     }, CHAM_TRON);
   });
+
+  // --- Baseline (JMA)
+  if (caiDat.bl)     themDuong(0, MAU.bl,     (i) => diem(t(i), ketQua.bl?.[i]));
+  if (caiDat.blSlow) themDuong(0, MAU.blSlow, (i) => diem(t(i), ketQua.blSlow?.[i]));
 
   // --- Khung RSI (pane số 1, bên dưới)
   if (caiDat.rsi) {
@@ -327,14 +348,74 @@ function tinhChiBao() {
   ['vwapY', 'vwapQ', 'vwapM', 'vwapW'].forEach((id) => {
     kq[id] = CB.vwap(coso, id.slice(-1), LECH_GIO).slice(cat);
   });
+  // Baseline (JMA) — tính khi bất kỳ tuỳ chọn BL nào bật
+  if (caiDat.bl || caiDat.blSlow || caiDat.blToNen || caiDat.blToNenSlow || caiDat.blTamGiac) {
+    kq.bl     = CB.jma(dong, blCaiDat.bl.len,   blCaiDat.bl.power,   blCaiDat.bl.phase);
+    kq.blSlow = CB.jma(dong, blCaiDat.slow.len, blCaiDat.slow.power, blCaiDat.slow.phase);
+  }
   ketQua = kq;
+}
+
+// Tô màu nến khi cắt BL/SlowBL (chỉ nến đã đóng)
+function _nenVoiBL(n, i) {
+  if (!caiDat.blToNen && !caiDat.blToNenSlow) return n;
+  if (i >= duLieuNen.length - 1) return n; // nến đang chạy: không tô
+  let color = null;
+  if (caiDat.blToNen && ketQua?.bl && i > 0) {
+    const bl = ketQua.bl, pc = duLieuNen[i - 1].close;
+    if (bl[i] != null && bl[i - 1] != null) {
+      if (n.close > bl[i] && pc <= bl[i - 1]) color = '#26a69a';
+      else if (n.close < bl[i] && pc >= bl[i - 1]) color = '#ef5350';
+    }
+  }
+  if (!color && caiDat.blToNenSlow && ketQua?.blSlow && i > 0) {
+    const bl = ketQua.blSlow, pc = duLieuNen[i - 1].close;
+    if (bl[i] != null && bl[i - 1] != null) {
+      if (n.close > bl[i] && pc <= bl[i - 1]) color = '#2962ff';
+      else if (n.close < bl[i] && pc >= bl[i - 1]) color = '#9c27b0';
+    }
+  }
+  if (!color) return n;
+  return { ...n, color, wickColor: color };
+}
+
+// Vẽ tam giác báo cắt BL
+function _blApDungTamGiac() {
+  if (blMarkers) { try { blMarkers.detach(); } catch (e) {} blMarkers = null; }
+  if (!caiDat.blTamGiac || !ketQua?.bl || !ketQua?.blSlow) return;
+  const markers = [];
+  const last = duLieuNen.length - 1;
+  for (let i = 1; i < last; i++) {
+    const nen = duLieuNen[i], prev = duLieuNen[i - 1];
+    const bl = ketQua.bl, bls = ketQua.blSlow;
+    if (bl[i] != null && bl[i - 1] != null) {
+      if (nen.close > bl[i] && prev.close <= bl[i - 1])
+        markers.push({ time: nen.time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp',   size: 1 });
+      else if (nen.close < bl[i] && prev.close >= bl[i - 1])
+        markers.push({ time: nen.time, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', size: 1 });
+    }
+    if (bls[i] != null && bls[i - 1] != null) {
+      if (nen.close > bls[i] && prev.close <= bls[i - 1])
+        markers.push({ time: nen.time, position: 'belowBar', color: '#2962ff', shape: 'arrowUp',   size: 1 });
+      else if (nen.close < bls[i] && prev.close >= bls[i - 1])
+        markers.push({ time: nen.time, position: 'aboveBar', color: '#9c27b0', shape: 'arrowDown', size: 1 });
+    }
+  }
+  if (!markers.length) return;
+  try {
+    if (typeof LC.createSeriesMarkers === 'function')
+      blMarkers = LC.createSeriesMarkers(nenSeries, markers);
+    else if (typeof nenSeries.setMarkers === 'function')
+      nenSeries.setMarkers(markers);
+  } catch (e) { console.warn('BL markers:', e); }
 }
 
 // Vẽ toàn bộ (khi mới tải hoặc đổi cài đặt)
 function veToanBo() {
   tinhChiBao();
-  nenSeries.setData(duLieuNen);
+  nenSeries.setData(duLieuNen.map((n, i) => _nenVoiBL(n, i)));
   S.forEach((x) => x.series.setData(duLieuNen.map((_, i) => x.lay(i))));
+  _blApDungTamGiac();
   coboCapNhat();
 }
 
@@ -342,7 +423,7 @@ function veToanBo() {
 function veNenCuoi() {
   tinhChiBao();
   const i = duLieuNen.length - 1;
-  nenSeries.update(duLieuNen[i]);
+  nenSeries.update(_nenVoiBL(duLieuNen[i], i));
   S.forEach((x) => x.series.update(x.lay(i)));
   capNhatNhanGia();
   eaCapNhatPnl();
@@ -819,6 +900,8 @@ function capNhatLegend(i) {
   them('vwapQ', 'VWAP-Q', ketQua.vwapQ[i] && ketQua.vwapQ[i].value);
   them('vwapM', 'VWAP-T', ketQua.vwapM[i] && ketQua.vwapM[i].value);
   them('vwapW', 'VWAP-W', ketQua.vwapW[i] && ketQua.vwapW[i].value);
+  if (caiDat.bl     && ketQua?.bl?.[i]     != null) html += `<span style="color:${MAU.bl}">BL${blCaiDat.bl.len} ${dinhDangGia(ketQua.bl[i])}</span>`;
+  if (caiDat.blSlow && ketQua?.blSlow?.[i] != null) html += `<span style="color:${MAU.blSlow}">BL${blCaiDat.slow.len} ${dinhDangGia(ketQua.blSlow[i])}</span>`;
   html += '</div>';
   const lg = document.getElementById('legend');
   lg.innerHTML = html;
@@ -2137,15 +2220,58 @@ function veBangCaiDat() {
       h.textContent = cb.nhom;
       box.appendChild(h);
     }
+
     const lab = document.createElement('label');
     lab.className = 'panel-dong';
-    lab.innerHTML = `<input type="checkbox" ${caiDat[cb.id] ? 'checked' : ''}>` +
-      `<i style="background:${cb.mau}"></i><span>${cb.ten}</span>`;
+
+    if (cb.blKey) {
+      // Dòng có thông số JMA: checkbox + màu + tên + 3 ô số
+      const p = blCaiDat[cb.blKey];
+      lab.innerHTML =
+        `<input type="checkbox" ${caiDat[cb.id] ? 'checked' : ''}>` +
+        `<i style="background:${cb.mau}"></i><span>${cb.ten}</span>`;
+      lab.querySelector('input').onchange = (e) => {
+        caiDat[cb.id] = e.target.checked;
+        ghiBoNho('caidat2', caiDat);
+        taoSeries(); veToanBo(); capNhatLegend(duLieuNen.length - 1);
+      };
+      box.appendChild(lab);
+
+      const prow = document.createElement('div');
+      prow.className = 'bl-params-row';
+      prow.innerHTML =
+        `<label>Độ dài <input type="number" class="bl-inp" data-blkey="${cb.blKey}" data-p="len"   min="2"    max="1000" value="${p.len}"></label>` +
+        `<label>Phase  <input type="number" class="bl-inp" data-blkey="${cb.blKey}" data-p="phase" min="-100" max="100"  step="0.1" value="${p.phase}"></label>` +
+        `<label>Power  <input type="number" class="bl-inp" data-blkey="${cb.blKey}" data-p="power" min="1"    max="5"    value="${p.power}"></label>`;
+      prow.querySelectorAll('.bl-inp').forEach((inp) => {
+        inp.addEventListener('click', (e) => e.stopPropagation());
+        inp.onchange = () => {
+          let v = parseFloat(inp.value);
+          if (isNaN(v)) return;
+          const pk = inp.dataset.p;
+          if (pk === 'len')   v = Math.round(Math.max(2,    Math.min(1000, v)));
+          if (pk === 'phase') v = Math.max(-100, Math.min(100, +v.toFixed(1)));
+          if (pk === 'power') v = Math.round(Math.max(1,    Math.min(5,    v)));
+          inp.value = v;
+          blCaiDat[inp.dataset.blkey][pk] = v;
+          ghiBoNho('blCaiDat', blCaiDat);
+          taoSeries(); veToanBo(); capNhatLegend(duLieuNen.length - 1);
+        };
+      });
+      box.appendChild(prow);
+      return; // đã append, bỏ qua append cuối
+    }
+
+    // Dòng thường (checkbox + màu tuỳ chọn + tên)
+    lab.innerHTML =
+      `<input type="checkbox" ${caiDat[cb.id] ? 'checked' : ''}>` +
+      (cb.mau ? `<i style="background:${cb.mau}"></i>` : '') +
+      `<span>${cb.ten}</span>`;
     lab.querySelector('input').onchange = async (e) => {
       const canTaiLai = cb.id.startsWith('vwap') && e.target.checked && nenTienTo.length === 0;
       caiDat[cb.id] = e.target.checked;
       ghiBoNho('caidat2', caiDat);
-      if (canTaiLai) { taoSeries(); napBieuDo(); return; } // cần tải thêm nến 1H cho VWAP
+      if (canTaiLai) { taoSeries(); napBieuDo(); return; }
       taoSeries();
       veToanBo();
       capNhatLegend(duLieuNen.length - 1);

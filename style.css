@@ -491,3 +491,29 @@ button { font-family: inherit; }
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* ===== Baseline params ===== */
+.bl-params-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 14px 6px 42px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.bl-params-row label {
+  font-size: 11px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.bl-inp {
+  width: 44px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 1px 3px;
+  text-align: center;
+}
