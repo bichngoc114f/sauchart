@@ -167,6 +167,8 @@ let coboCombSmaMask = [];  // parallel to duLieuNen: per-khung SMA bits của ng
 // Hiển thị / layout
 let watchlistThuGon = docBoNho('watchlistThuGon', false);
 let phongToKhungGia = docBoNho('phongToKhungGia', false);
+let rsiNhomSeries = { ma: [], bb: [] };
+let rsiNhomBat = Object.assign({ma:true, bb:true}, docBoNho('rsiNhom', {}));
 
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
@@ -272,14 +274,23 @@ function taoSeries() {
         return { time: t(i), value: 1000, color: r > 80 ? MAU.nenQuaMua : MAU.nenQuaBan };
       },
     });
-    themDuong(P, MAU.bb55Dai, (i) => diem(t(i), ketQua.bb55.tren[i]));
-    themDuong(P, MAU.bb55Dai, (i) => diem(t(i), ketQua.bb55.duoi[i]));
-    themDuong(P, MAU.bb20Dai, (i) => diem(t(i), ketQua.bb20.tren[i]));
-    themDuong(P, MAU.bb20Dai, (i) => diem(t(i), ketQua.bb20.duoi[i]));
-    themDuong(P, MAU.bb55, (i) => diem(t(i), ketQua.bb55.giua[i]), NET_CHAM);
-    themDuong(P, MAU.bb20, (i) => diem(t(i), ketQua.bb20.giua[i]), NET_CHAM);
-    themDuong(P, MAU.wma45, (i) => diem(t(i), ketQua.wma45[i]), { lineWidth: 2 });
-    themDuong(P, MAU.ema9, (i) => diem(t(i), ketQua.ema9[i]), { lineWidth: 2 });
+    rsiNhomSeries = { ma: [], bb: [] };
+    const _rniB = [
+      themDuong(P, MAU.bb55Dai, (i) => diem(t(i), ketQua.bb55.tren[i])),
+      themDuong(P, MAU.bb55Dai, (i) => diem(t(i), ketQua.bb55.duoi[i])),
+      themDuong(P, MAU.bb20Dai, (i) => diem(t(i), ketQua.bb20.tren[i])),
+      themDuong(P, MAU.bb20Dai, (i) => diem(t(i), ketQua.bb20.duoi[i])),
+      themDuong(P, MAU.bb55, (i) => diem(t(i), ketQua.bb55.giua[i]), NET_CHAM),
+      themDuong(P, MAU.bb20, (i) => diem(t(i), ketQua.bb20.giua[i]), NET_CHAM),
+    ];
+    const _rniM = [
+      themDuong(P, MAU.wma45, (i) => diem(t(i), ketQua.wma45[i]), { lineWidth: 2 }),
+      themDuong(P, MAU.ema9, (i) => diem(t(i), ketQua.ema9[i]), { lineWidth: 2 }),
+    ];
+    rsiNhomSeries.bb = _rniB;
+    rsiNhomSeries.ma = _rniM;
+    _rniB.forEach(s => s.applyOptions({ visible: rsiNhomBat.bb }));
+    _rniM.forEach(s => s.applyOptions({ visible: rsiNhomBat.ma }));
     const rsiS = themDuong(P, MAU.rsi, (i) => diem(t(i), ketQua.rsi[i]), { lineWidth: 2 });
     // Mốc 70/30 chấm, 50 gạch — giống mẫu
     [[70, LC.LineStyle.Dotted], [50, LC.LineStyle.Dashed], [30, LC.LineStyle.Dotted]].forEach(([muc, kieu]) =>
@@ -293,6 +304,7 @@ function taoSeries() {
     }
   }
   _applyPhongToBtn();
+  _applyRsiNhomBtn();
 }
 
 // ---------- 4. TÍNH CHỈ BÁO ----------
@@ -819,14 +831,14 @@ function capNhatLegend(i) {
   if (caiDat.rsi && panes[1] && !phongToKhungGia) {
     lr.style.display = 'block';
     lr.style.top = panes[0].getHeight() + 6 + 'px';
+    _applyRsiNhomBtn();
     lr.innerHTML =
       `<span style="color:${MAU.rsi}">RSI ${so(ketQua.rsi[i])}</span>` +
-      `<span style="color:${MAU.ema9}">EMA9 ${so(ketQua.ema9[i])}</span>` +
-      `<span style="color:${MAU.wma45}">WMA45 ${so(ketQua.wma45[i])}</span>` +
-      `<span style="color:${MAU.bb20}">BB20 ${so(ketQua.bb20.giua[i])}</span>` +
-      `<span style="color:${MAU.bb55}">BB55 ${so(ketQua.bb55.giua[i])}</span>`;
+      (rsiNhomBat.ma ? `<span style="color:${MAU.ema9}">EMA9 ${so(ketQua.ema9[i])}</span><span style="color:${MAU.wma45}">WMA45 ${so(ketQua.wma45[i])}</span>` : '') +
+      (rsiNhomBat.bb ? `<span style="color:${MAU.bb20}">BB20 ${so(ketQua.bb20.giua[i])}</span><span style="color:${MAU.bb55}">BB55 ${so(ketQua.bb55.giua[i])}</span>` : '');
   } else {
     lr.style.display = 'none';
+    _applyRsiNhomBtn();
   }
 }
 
@@ -855,7 +867,7 @@ chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
     taiThemNenCu();
   }
 });
-window.addEventListener('resize', () => capNhatNhanGia());
+window.addEventListener('resize', () => { capNhatNhanGia(); _applyRsiNhomBtn(); });
 
 // ---------- 8b. THU GỌN WATCHLIST ----------
 function _applyWatchlistState() {
@@ -899,11 +911,25 @@ function _applyPhongToBtn() {
   btn.style.display = caiDat.rsi ? '' : 'none';
 }
 
+function _applyRsiNhomBtn() {
+  const btn = document.getElementById('btnRsiNhom');
+  if (!btn) return;
+  const panes = chart.panes();
+  if (!caiDat.rsi || !panes[1] || phongToKhungGia) {
+    btn.style.display = 'none';
+    document.getElementById('popupRsiNhom').style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  btn.style.top = (panes[0].getHeight() + 6) + 'px';
+}
+
 function togglePhongToKhungGia() {
   phongToKhungGia = !phongToKhungGia;
   ghiBoNho('phongToKhungGia', phongToKhungGia);
   try { _applyRsiPaneSize(); } catch (e) {}
   _applyPhongToBtn();
+  _applyRsiNhomBtn();
   capNhatLegend(duLieuNen.length - 1);
   capNhatNhanGia();
 }
@@ -2833,3 +2859,37 @@ _applyWatchlistState();
 // Nút phóng to khung giá
 document.getElementById('btnPhongTo').onclick = togglePhongToKhungGia;
 _applyPhongToBtn();
+
+// Nút nhóm đường RSI
+(function () {
+  const btn = document.getElementById('btnRsiNhom');
+  const popup = document.getElementById('popupRsiNhom');
+  if (!btn || !popup) return;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const show = popup.style.display === 'none' || popup.style.display === '';
+    if (show) {
+      popup.querySelector('.rni-ma').checked = rsiNhomBat.ma;
+      popup.querySelector('.rni-bb').checked = rsiNhomBat.bb;
+      popup.style.top = (parseInt(btn.style.top || '0') + 26) + 'px';
+      popup.style.display = 'flex';
+    } else {
+      popup.style.display = 'none';
+    }
+  });
+
+  popup.addEventListener('click', (e) => e.stopPropagation());
+
+  document.addEventListener('click', () => { popup.style.display = 'none'; });
+
+  popup.querySelectorAll('.rni-ma, .rni-bb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const nhom = cb.classList.contains('rni-ma') ? 'ma' : 'bb';
+      rsiNhomBat[nhom] = cb.checked;
+      ghiBoNho('rsiNhom', rsiNhomBat);
+      rsiNhomSeries[nhom].forEach(s => s.applyOptions({ visible: cb.checked }));
+      capNhatLegend(duLieuNen.length - 1);
+    });
+  });
+}());
