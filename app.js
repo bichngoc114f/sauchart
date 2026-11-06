@@ -175,8 +175,9 @@ let coboLoai = docBoNho('coboLoai', 0);        // 0=SMA, 1=BB, 2=SMA+BB
 let coboNguongBB = docBoNho('coboNguongBB', 4); // 3/4/5%
 let coboBBVisBat = Object.assign({tim:true,xam:true,vang:true}, docBoNho('coboBBVis',{}));
 let coboBBKetQua = {};  // {ma: {w3s, ts, zones}}
-let coboBBMask = [];    // parallel to duLieuNen: 1 nếu nến nằm trong BB zone
-let coboCombMask = [];
+let coboBBMask = [];       // parallel to duLieuNen: 1 nếu nến nằm trong BB zone (shifted)
+let coboCombMask = [];     // parallel to duLieuNen: bits 1=TÍM, 2=XÁM, 4=VÀNG (shifted intervals)
+let coboSmaShiftMask = []; // parallel to duLieuNen: per-frame shifted SMA bitmask (dải coboLoai=2)
 
 // Hiển thị / layout
 let watchlistThuGon = docBoNho('watchlistThuGon', true);
@@ -1427,7 +1428,7 @@ class CoboPrimitive {
                   if (!coboBBVisBat.tim)  cm &= ~1;
                   if (!coboBBVisBat.xam)  cm &= ~2;
                   if (!coboBBVisBat.vang) cm &= ~4;
-                  let smaBits = coboBitmask[i] || 0;
+                  let smaBits = coboSmaShiftMask[i] || 0;
                   if (visMask2) smaBits &= visMask2;
                   if (!cm && !smaBits) continue;
                   const r = _xbcw(i); if (!r) continue;
@@ -1512,83 +1513,110 @@ function coboTinhBitmask() {
   coboBitmask = new Array(duLieuNen.length).fill(0);
   coboBBMask = new Array(duLieuNen.length).fill(0);
   coboCombMask = new Array(duLieuNen.length).fill(0);
+  coboSmaShiftMask = new Array(duLieuNen.length).fill(0);
   if (!coboBat || !duLieuNen.length) return;
   if (DANH_SACH_VN.find(x => x.ma === maHienTai)) return;
   const kq = coboKetQua[maHienTai];
   const bbKq = coboBBKetQua[maHienTai];
   const khungMs = _coboKhungMs();
   const D_MS = 86400000;
-
-  // Precompute per-day: bb flag và tXacNhan (thời điểm đóng sớm nhất của nến co bó SMA mở trong ngày)
   const KHUNG_FMS = { H12: 43200000, H8: 28800000, H4: 14400000, H2: 7200000, H1: 3600000 };
-  const firstUtcMs = (duLieuNen[0].time - LECH_GIO) * 1000;
-  const lastUtcMs  = (duLieuNen[duLieuNen.length - 1].time - LECH_GIO) * 1000;
-  const firstDay   = Math.floor(firstUtcMs / D_MS) * D_MS;
-  const lastDay    = Math.floor(lastUtcMs  / D_MS) * D_MS;
-  const dayBB  = new Map();
-  const dayTXN = new Map(); // Infinity = không có nến SMA trong ngày
-  for (let day = firstDay; day <= lastDay; day += D_MS) {
-    dayBB.set(day, bbKq?.zones?.length ? _coboOverlap(bbKq.zones, day, day + D_MS) : false);
-    let txn = Infinity;
-    if (kq) {
-      for (const k of COBO_KHUNG) {
-        const fms = KHUNG_FMS[k.id];
-        if (!fms || !kq[k.id]?.zones?.length) continue;
-        for (const { from, to } of kq[k.id].zones) {
-          const eOpen = Math.max(day, from);
-          if (eOpen < Math.min(day + D_MS, to)) txn = Math.min(txn, eOpen + fms);
-        }
-      }
+
+  // Interval helpers (tính 1 lần khi dữ liệu đổi, không tính lại mỗi lần vẽ)
+  function ivMerge(ivs) {
+    if (!ivs.length) return [];
+    const s = ivs.slice().sort((a, b) => a.from - b.from);
+    const out = [{ from: s[0].from, to: s[0].to }];
+    for (let i = 1; i < s.length; i++) {
+      const cur = out[out.length - 1];
+      if (s[i].from <= cur.to) { if (s[i].to > cur.to) cur.to = s[i].to; }
+      else out.push({ from: s[i].from, to: s[i].to });
     }
-    dayTXN.set(day, txn);
+    return out;
+  }
+  function ivIntersect(A, B) {
+    const out = []; let ai = 0, bi = 0;
+    while (ai < A.length && bi < B.length) {
+      const f = Math.max(A[ai].from, B[bi].from), t = Math.min(A[ai].to, B[bi].to);
+      if (f < t) out.push({ from: f, to: t });
+      if (A[ai].to < B[bi].to) ai++; else bi++;
+    }
+    return out;
+  }
+  function ivSubtract(A, B) {
+    if (!B.length) return A.slice();
+    const out = []; let bi = 0;
+    for (const a of A) {
+      while (bi < B.length && B[bi].to <= a.from) bi++;
+      let cur = a.from, bj = bi;
+      while (bj < B.length && B[bj].from < a.to) {
+        if (cur < B[bj].from) out.push({ from: cur, to: B[bj].from });
+        if (B[bj].to > cur) cur = B[bj].to;
+        bj++;
+      }
+      if (cur < a.to) out.push({ from: cur, to: a.to });
+    }
+    return out;
+  }
+  function ivOverlaps(ivs, a, b) {
+    if (!ivs.length) return false;
+    let lo = 0, hi = ivs.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (ivs[m].to <= a) lo = m + 1; else hi = m; }
+    return lo < ivs.length && ivs[lo].from < b;
   }
 
-  for (let i = 0; i < duLieuNen.length; i++) {
-    const nenUtcMs = (duLieuNen[i].time - LECH_GIO) * 1000;
-    const nenEndMs = (i+1 < duLieuNen.length)
-      ? (duLieuNen[i+1].time - LECH_GIO) * 1000
-      : nenUtcMs + khungMs;
+  // Danh sách đã dịch: BB +1 ngày, SMA mỗi khung + độ dài khung
+  const bbShifted = bbKq?.zones?.length
+    ? ivMerge(bbKq.zones.map(z => ({ from: z.from + D_MS, to: z.to + D_MS })))
+    : [];
+  const smaPerFrame = {};
+  const smaAllRaw = [];
+  for (const k of COBO_KHUNG) {
+    const fms = KHUNG_FMS[k.id];
+    if (!fms || !kq?.[k.id]?.zones?.length) { smaPerFrame[k.id] = []; continue; }
+    smaPerFrame[k.id] = ivMerge(kq[k.id].zones.map(z => ({ from: z.from + fms, to: z.to + fms })));
+    for (const iv of smaPerFrame[k.id]) smaAllRaw.push(iv);
+  }
+  const smaAll = ivMerge(smaAllRaw);
+  const ivTim  = ivIntersect(bbShifted, smaAll); // TÍM = BB ∩ SMA
+  const ivVang = ivSubtract(bbShifted, smaAll);  // VÀNG = BB − SMA
+  const ivXam  = ivSubtract(smaAll, bbShifted);  // XÁM = SMA − BB
 
-    // coboBitmask: SMA zone overlap thực tế (cho dải 5 khung)
+  for (let i = 0; i < duLieuNen.length; i++) {
+    const a = (duLieuNen[i].time - LECH_GIO) * 1000;
+    const b = (i+1 < duLieuNen.length)
+      ? (duLieuNen[i+1].time - LECH_GIO) * 1000
+      : a + khungMs;
+
+    // coboBitmask: SMA zone gốc (không dịch) cho coboLoai=0
     if (kq) {
       let mask = 0;
       for (const k of COBO_KHUNG) {
         if (!kq[k.id]?.zones?.length) continue;
-        if (_coboOverlap(kq[k.id].zones, nenUtcMs, nenEndMs)) mask |= k.bit;
+        if (_coboOverlap(kq[k.id].zones, a, b)) mask |= k.bit;
       }
       coboBitmask[i] = mask;
     }
 
-    // coboBBMask: BB zone overlap thực tế (coboLoai=1)
-    if (bbKq?.zones?.length) {
-      coboBBMask[i] = _coboOverlap(bbKq.zones, nenUtcMs, nenEndMs) ? 1 : 0;
+    // coboSmaShiftMask: SMA đã dịch mỗi khung (dải coboLoai=2)
+    {
+      let mask = 0;
+      for (const k of COBO_KHUNG) {
+        if (ivOverlaps(smaPerFrame[k.id], a, b)) mask |= k.bit;
+      }
+      coboSmaShiftMask[i] = mask;
     }
 
-    // coboCombMask: TÍM/XÁM/VÀNG theo tXacNhan
-    if (kq || bbKq?.zones?.length) {
-      if (khungMs < D_MS) {
-        // Khung nhỏ hơn D: màu theo ngày UTC nến mở trong đó
-        const day = Math.floor(nenUtcMs / D_MS) * D_MS;
-        const bb  = dayBB.get(day) || false;
-        const txn = dayTXN.get(day) ?? Infinity;
-        if (bb) {
-          coboCombMask[i] = (txn <= nenUtcMs) ? 1 : 4; // TÍM hoặc VÀNG
-        } else if (txn <= nenUtcMs) {
-          coboCombMask[i] = 2; // XÁM
-        }
-      } else {
-        // Khung D trở lên: màu ưu tiên TÍM > XÁM > VÀNG qua các ngày trong nến
-        const dayStart = Math.floor(nenUtcMs / D_MS) * D_MS;
-        let combBits = 0;
-        for (let day = dayStart; day < nenEndMs; day += D_MS) {
-          const bb  = dayBB.get(day) || false;
-          const txn = dayTXN.get(day) ?? Infinity;
-          if      (bb && txn < Infinity) combBits |= 1; // TÍM
-          else if (bb)                   combBits |= 4; // VÀNG
-          else if (txn < Infinity)       combBits |= 2; // XÁM
-        }
-        coboCombMask[i] = combBits;
-      }
+    // coboBBMask: BB đã dịch (coboLoai=1)
+    coboBBMask[i] = ivOverlaps(bbShifted, a, b) ? 1 : 0;
+
+    // coboCombMask: TÍM/XÁM/VÀNG (coboLoai=2)
+    {
+      let cm = 0;
+      if (ivOverlaps(ivTim,  a, b)) cm |= 1;
+      if (ivOverlaps(ivXam,  a, b)) cm |= 2;
+      if (ivOverlaps(ivVang, a, b)) cm |= 4;
+      coboCombMask[i] = cm;
     }
   }
 }
@@ -1690,7 +1718,7 @@ function _coboVeBangBB(el) {
   el.innerHTML = `<div style="font-size:12px;padding:4px 0">` +
     `<span style="color:#e8c547">■</span> Co bó BB: <b>${bbCnt}</b> ngày D` +
     ` <span style="color:#888">(${fPct(bbCnt, totalD)} / ${totalD} ngày có dữ liệu)</span></div>` +
-    `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Màu hiện đúng ngày D (không dời)</div>`;
+    `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Vùng hiện từ lúc nến D BB đóng (dịch 1 ngày).</div>`;
 }
 
 function _coboVeBangComb(el) {
@@ -1710,7 +1738,7 @@ function _coboVeBangComb(el) {
   html += `<tr class="cobo-tot"><td>Tổng</td><td>${total}</td><td>${fPct(total,totalD)}</td></tr>`;
   html += `</tbody></table>`;
   html += `<div style="color:#888;font-size:11px;padding:2px 0">/ ${totalD} ngày D có dữ liệu</div>`;
-  html += `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Khung nhỏ: tím từ lúc nến co bó SMA đóng trong ngày co bó BB; khung D: ngày có cả hai là tím.</div>`;
+  html += `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Vùng chỉ hiện từ lúc nến tạo vùng đóng. Tím = BB và SMA cùng tồn tại; nến lớn chứa đoạn tím thì tím.</div>`;
   el.innerHTML = html;
 }
 
