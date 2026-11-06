@@ -185,6 +185,8 @@ let phongToKhungGia = docBoNho('phongToKhungGia', false);
 let rsiNhomSeries = { ma: [], bb: [] };
 let rsiNhomBat = Object.assign({ma:true, bb:true}, docBoNho('rsiNhom', {}));
 let blMarkers = null;
+let wsH1Auto = null;
+let autoLamMoiLuc = Date.now(); // lần cuối tính lại cobo+EA tự động
 
 // ---------- 3. TẠO BIỂU ĐỒ ----------
 const LC = LightweightCharts;
@@ -862,6 +864,16 @@ function moKetNoiRealtime(ma, khung) {
   };
 }
 
+// WS phụ nhận kline 1h để phát hiện nến H1 đóng → kích hoạt tính lại cobo + EA
+function moWsH1Auto(ma) {
+  if (wsH1Auto) { wsH1Auto.onclose = null; wsH1Auto.close(); wsH1Auto = null; }
+  if (DANH_SACH_VN.find(x => x.ma === ma)) return;
+  const ws = new WebSocket(`${WS_BASE}/ws/${ma.toLowerCase()}@kline_1h`);
+  wsH1Auto = ws;
+  ws.onmessage = (event) => { if (JSON.parse(event.data).k.x) autoLamMoi(ma); };
+  ws.onclose = () => { setTimeout(() => { if (wsH1Auto === ws) moWsH1Auto(ma); }, 5000); };
+}
+
 // ---------- 7. HIỂN THỊ ----------
 function dinhDangGia(g) {
   if (g == null) return '—';
@@ -1072,7 +1084,11 @@ async function napBieuDo() {
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
-    if (!infoVN) { moKetNoiRealtime(maHienTai, khungHienTai === '2w' ? '1w' : khungHienTai); }
+    if (!infoVN) {
+      moKetNoiRealtime(maHienTai, khungHienTai === '2w' ? '1w' : khungHienTai);
+      moWsH1Auto(maHienTai);
+      autoLamMoiLuc = Date.now();
+    }
     else { datTrangThai('KBS · dữ liệu VN', 'ok'); }
     batDauNhanGia();
     veNutEA();
@@ -1764,6 +1780,27 @@ function coboLapLich() {
     const changed = (coboKetQua[ma]?.lastH1T !== prevH1T) || coboLoai !== 0;
     if (changed) coboCapNhat();
   }, 5 * 60 * 1000);
+}
+
+// Tính lại cobo + EA khi nến H1 mới đóng (gọi từ wsH1Auto và visibilitychange)
+async function autoLamMoi(ma) {
+  autoLamMoiLuc = Date.now();
+  if (ma !== maHienTai) return;
+  if (DANH_SACH_VN.find(x => x.ma === ma)) return;
+  if (coboBat && !coboLoading) {
+    const loads = [];
+    if (coboLoai !== 1) loads.push(coboTinh(ma));
+    if (coboLoai !== 0) loads.push(coboBBTinh(ma));
+    if (loads.length) {
+      await Promise.all(loads);
+      if (ma === maHienTai) { coboVe(); coboCapNhat(); coboCapNhatPanel(); }
+    }
+  }
+  if (caiDatEA.on && eaCoHoTro() && !eaLoading) {
+    if (eaIsF2()) delete eaF2KetQua[ma];
+    else delete eaKetQua[ma];
+    chayEA();
+  }
 }
 
 function khoiDongCoBoPanel() {
@@ -2964,6 +3001,9 @@ document.addEventListener('visibilitychange', () => {
     if (wsWatch) { wsWatch.onclose = null; wsWatch.close(); }
     moKetNoiWatchlist();
     batDauPollingVN();
+  } else if (Date.now() - autoLamMoiLuc > 3600000) {
+    // Tab bị ẩn < 30s nhưng đã > 1 giờ từ lần tính cuối → tính lại cobo + EA
+    autoLamMoi(maHienTai);
   }
 });
 
