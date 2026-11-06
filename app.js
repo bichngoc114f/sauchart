@@ -1509,6 +1509,11 @@ async function coboTinh(ma) {
   }
 }
 
+// Tính bitmask cho mỗi nến theo 4 mảng song song:
+//   coboBitmask:      SMA gốc (không dịch) → coboLoai=0
+//   coboBBMask:       BB đã dịch +1 ngày   → coboLoai=1
+//   coboSmaShiftMask: SMA đã dịch +độ dài khung (mỗi khung riêng) → dải trong coboLoai=2
+//   coboCombMask:     TÍM(1)/XÁM(2)/VÀNG(4) = giao/hiệu tập BB và SMA đã dịch → coboLoai=2
 function coboTinhBitmask() {
   coboBitmask = new Array(duLieuNen.length).fill(0);
   coboBBMask = new Array(duLieuNen.length).fill(0);
@@ -1520,7 +1525,7 @@ function coboTinhBitmask() {
   const bbKq = coboBBKetQua[maHienTai];
   const khungMs = _coboKhungMs();
   const D_MS = 86400000;
-  const KHUNG_FMS = { H12: 43200000, H8: 28800000, H4: 14400000, H2: 7200000, H1: 3600000 };
+  const KHUNG_FMS = { h12: 43200000, h8: 28800000, h4: 14400000, h2: 7200000, h1: 3600000 };
 
   // Interval helpers (tính 1 lần khi dữ liệu đổi, không tính lại mỗi lần vẽ)
   function ivMerge(ivs) {
@@ -1567,14 +1572,14 @@ function coboTinhBitmask() {
 
   // Danh sách đã dịch: BB +1 ngày, SMA mỗi khung + độ dài khung
   const bbShifted = bbKq?.zones?.length
-    ? ivMerge(bbKq.zones.map(z => ({ from: z.from + D_MS, to: z.to + D_MS })))
+    ? ivMerge(bbKq.zones.map(z => ({ from: z.s + D_MS, to: z.e + D_MS })))
     : [];
   const smaPerFrame = {};
   const smaAllRaw = [];
   for (const k of COBO_KHUNG) {
     const fms = KHUNG_FMS[k.id];
     if (!fms || !kq?.[k.id]?.zones?.length) { smaPerFrame[k.id] = []; continue; }
-    smaPerFrame[k.id] = ivMerge(kq[k.id].zones.map(z => ({ from: z.from + fms, to: z.to + fms })));
+    smaPerFrame[k.id] = ivMerge(kq[k.id].zones.map(z => ({ from: z.s + fms, to: z.e + fms })));
     for (const iv of smaPerFrame[k.id]) smaAllRaw.push(iv);
   }
   const smaAll = ivMerge(smaAllRaw);
@@ -1738,7 +1743,7 @@ function _coboVeBangComb(el) {
   html += `<tr class="cobo-tot"><td>Tổng</td><td>${total}</td><td>${fPct(total,totalD)}</td></tr>`;
   html += `</tbody></table>`;
   html += `<div style="color:#888;font-size:11px;padding:2px 0">/ ${totalD} ngày D có dữ liệu</div>`;
-  html += `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Vùng chỉ hiện từ lúc nến tạo vùng đóng. Tím = BB và SMA cùng tồn tại; nến lớn chứa đoạn tím thì tím.</div>`;
+  html += `<div style="color:#888;font-size:11px;padding:1px 0;font-style:italic">Vùng hiện từ lúc nến tạo vùng đóng; tím = BB và SMA cùng tồn tại.</div>`;
   el.innerHTML = html;
 }
 
