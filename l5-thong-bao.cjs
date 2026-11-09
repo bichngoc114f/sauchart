@@ -2,7 +2,7 @@
 //  l5-thong-bao.cjs — GỬI THÔNG BÁO TELEGRAM CHO EA L5 + EA F2 (crypto, chạy trên GitHub Actions)
 //  Chạy MỖI GIỜ:
 //   1. Tải nến Binance + chạy L5 cho BTCUSDT, ETHUSDT, PAXGUSDT (dùng đúng ea-l5-data.js + ea-l5-engine.js như app).
-//      Chạy thêm EA F2 cho BTCUSDT (ea-f2-engine.js + ea-f2-data.js, luồng H2, H4, D) — F1 04/11, đổi sang F2 05/11/2026.
+//      Chạy thêm EA F2 cho BTCUSDT, ETHUSDT, PAXGUSDT (ea-f2-engine.js + ea-f2-data.js, luồng H2, H4, D) — F1 04/11, F2 05/11, thêm ETH + vàng 09/11/2026.
 //   2. Lệnh nào VÀO hoặc THOÁT kể từ lần chạy trước → gửi tin ngay.
 //   3. Lần chạy đầu tiên sau 07:00 giờ VN mỗi ngày (nến D vừa đóng) → gửi tin TÓM TẮT.
 //  Trạng thái (lần chạy trước, ngày đã tóm tắt) lưu ở thư mục .l5-state (GitHub cache giữ giữa các lần chạy).
@@ -14,7 +14,7 @@ globalThis.L5 = require('./ea-l5-engine.js');
 require('./ea-l5-data.js'); // gắn globalThis.L5Data (không có IndexedDB → tự chạy không cache)
 globalThis.F2 = require('./ea-f2-engine.js');
 require('./ea-f2-data.js'); // gắn globalThis.F2Data
-const DS_F1 = [['BTCUSDT', 'BTC']]; // EA F2 chỉ chạy BTC
+const DS_F1 = [['BTCUSDT', 'BTC'], ['ETHUSDT', 'ETH'], ['PAXGUSDT', 'Vàng (PAXG)']]; // EA F2 chạy cả 3 mã (thêm ETH, vàng 09/11/2026)
 
 const DS_MA = [['BTCUSDT', 'BTC'], ['ETHUSDT', 'ETH'], ['PAXGUSDT', 'Vàng (PAXG)']];
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
