@@ -953,6 +953,22 @@ chart.subscribeCrosshairMove((param) => {
   }
   capNhatLegend(i);
   capNhatNhanGia();
+  // Đổi con trỏ khi hover gần mũi tên vào lệnh EA
+  if (param.point && caiDatEA.hist && caiDatEA.on && eaCoHoTro()) {
+    const near = eaVaoTimGanNhat(param.point);
+    const canvas = document.querySelector('#chart canvas');
+    if (canvas) canvas.style.cursor = near ? 'pointer' : '';
+  }
+});
+
+// Bấm vào mũi tên vào lệnh EA → hiện popup
+chart.subscribeClick((param) => {
+  if (!caiDatEA.hist || !eaCoHoTro() || !caiDatEA.on) return;
+  if (!param.point) { eaVaoDongBang(); return; }
+  const trade = eaVaoTimGanNhat(param.point);
+  if (!trade) { eaVaoDongBang(); return; }
+  if (eaVaoPopupTrade === trade) { eaVaoDongBang(); return; }
+  eaVaoHienBang(trade);
 });
 
 // Kéo/zoom biểu đồ hoặc đổi kích thước màn hình → cập nhật vị trí nhãn giá
@@ -1042,6 +1058,7 @@ function timNen(t) {
 
 // Tải lại toàn bộ biểu đồ khi đổi mã / khung giờ
 async function napBieuDo() {
+  eaVaoDongBang();
   const toi = ++phien;
   dangTaiThem = false;
   daHetLichSu = false;
@@ -2423,6 +2440,7 @@ let eaHistMarkers = null;  // markers lịch sử (LC.createSeriesMarkers)
 let eaHistPrim = null;     // primitive vẽ đường nối entry-exit
 let eaOpenPrim = null;     // EaOpenLinesPrimitive cho lệnh đang mở
 let eaLoading = false;
+let eaVaoPopupTrade = null; // lệnh đang hiện popup chi tiết (null = ẩn)
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
@@ -2623,6 +2641,7 @@ function eaXoaVe() {
   if (eaHistMarkers) { try { eaHistMarkers.detach(); } catch (e) {} eaHistMarkers = null; }
   if (eaHistPrim) { try { nenSeries.detachPrimitive(eaHistPrim); } catch (e) {} eaHistPrim = null; }
   if (eaOpenPrim) { try { nenSeries.detachPrimitive(eaOpenPrim); } catch (e) {} eaOpenPrim = null; }
+  eaVaoDongBang();
 }
 
 // Lịch sử giao dịch: mũi tên vào/ra + đường chấm nối
@@ -2672,6 +2691,131 @@ function eaCapNhatPnl() {
   eaOpenPrim.updatePnl(cur, caiDatEA.pnl);
 }
 
+// ---------- Popup chi tiết lệnh vào (bấm mũi tên mua) ----------
+
+function eaVaoDongBang() {
+  const el = document.getElementById('eaVaoPopup');
+  if (el) el.style.display = 'none';
+  eaVaoPopupTrade = null;
+}
+
+// Tìm lệnh entry gần điểm bấm nhất (CSS pixels)
+function eaVaoTimGanNhat(point) {
+  if (!point) return null;
+  const kq = eaGetKetQua();
+  if (!kq?.trades || !caiDatEA.hist) return null;
+  const isMobile = window.matchMedia('(pointer: coarse)').matches;
+  const thr = isMobile ? 20 : 12;
+  let best = null, bestDist = Infinity;
+  for (const t of kq.trades) {
+    if (!eaLegEnabled(t.leg)) continue;
+    const ct = eaSnapToNen(t.entryT);
+    if (ct === null) continue;
+    const x = chart.timeScale().timeToCoordinate(ct);
+    const y = nenSeries.priceToCoordinate(t.entry);
+    if (x == null || y == null) continue;
+    const dx = Math.abs(point.x - x);
+    const dy = Math.abs(point.y - y);
+    if (dx <= thr * 2 && dy <= thr * 2) {
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < bestDist) { bestDist = dist; best = t; }
+    }
+  }
+  return bestDist <= thr * 2.5 ? best : null;
+}
+
+function eaVaoHienBang(t) {
+  const el = document.getElementById('eaVaoPopup');
+  if (!el) return;
+  const v = t.vao || null;
+  const SL0 = t.slHist?.[0]?.sl ?? null;
+  const g = dinhDangGia;
+  const fv = eaFmtVN;
+  const fd = (ms) => {
+    if (!ms) return '—';
+    const d = new Date(ms + 7 * 3600000);
+    return String(d.getUTCDate()).padStart(2, '0') + '/' + String(d.getUTCMonth() + 1).padStart(2, '0');
+  };
+  const mau = EA_F3_MAUS[t.leg] || '#aaa';
+
+  let html = `<div class="eavp-head">` +
+    `<span><span class="eavp-leg" style="color:${mau}">${t.leg}</span> EA F3 · MUA</span>` +
+    `<button class="eavp-close" onclick="eaVaoDongBang()">✕</button>` +
+    `</div><div class="eavp-body">` +
+    `<div class="eavp-top">Vào <b>${fv(t.entryT)}</b> @ <b>${g(t.entry)}</b></div>`;
+
+  if (v?.loai === 'D' && v?.tinHieuT) {
+    html += `<div class="eavp-top">Tín hiệu D đóng ${fv(v.tinHieuT)}</div>`;
+  }
+
+  if (!v) {
+    html += `<div class="eavp-sec">Luồng vào lệnh</div>`;
+    html += `<div class="eavp-row">${t.method || '—'}</div>`;
+    if (SL0 != null) {
+      const slPct = t.entry ? ((t.entry - SL0) / t.entry * 100).toFixed(2) : null;
+      html += `<div class="eavp-sec">Mức SL khi vào lệnh</div>`;
+      html += `<div class="eavp-row">SL = <b>${g(SL0)}</b>${slPct != null ? ` · ${slPct}% dưới giá vào` : ''}</div>`;
+    }
+    html += `<div class="eavp-row eavp-na">Không có thông tin chi tiết.</div>`;
+    html += `</div>`;
+    el.innerHTML = html;
+    el.style.display = '';
+    eaVaoPopupTrade = t;
+    return;
+  }
+
+  // B. Luồng vào lệnh
+  html += `<div class="eavp-sec">Luồng vào lệnh</div>`;
+  html += `<div class="eavp-row">${t.method}</div>`;
+  if (v.loai === 'H' || v.loai === 'MIX') {
+    html += `<div class="eavp-row">Nến trước <b>${g(v.nenTruoc)}</b> ≤ S_cao, nến này <b>${g(t.entry)}</b> > S_cao <b>${g(v.st)}</b></div>`;
+    if (v.loai === 'MIX') {
+      html += `<div class="eavp-row">Chỉ vào khi nến D gần nhất là nến tím: ngày <b>${fd(v.ngayTim)}</b> = tím</div>`;
+    }
+  } else if (v.loai === 'D') {
+    const lStr = Array.isArray(v.L) ? v.L.map(x => x.toFixed(1)).join('/') : '—';
+    html += `<div class="eavp-row">Vùng tím BB <b>${so(v.w3)}</b>% (BB20 ${g(v.bb20)}, BB55 ${g(v.bb55)}) · RSI <b>${so(v.rsi, 1)}</b> (L1..L4 = ${lStr})</div>`;
+    html += `<div class="eavp-row">Cụm co bó thấp nhất: <b>${v.khung}</b>. Rào: nến <b>${v.raoKhung}</b> đóng ${g(t.entry)} > đường thứ ${v.raoN} (${g(v.raoGia)}) lúc ${fv(v.nenRaoT)}</div>`;
+  }
+
+  // C. SL khi vào
+  html += `<div class="eavp-sec">Mức SL khi vào lệnh</div>`;
+  if (SL0 != null) {
+    html += `<div class="eavp-row">SL = <b>${g(SL0)}</b></div>`;
+    if (v.loai === 'H') {
+      html += `<div class="eavp-row">S1 ${g(v.s1)} × 0.99 = ${g(v.s1 != null ? v.s1 * 0.99 : null)}</div>`;
+    } else if (v.loai === 'MIX') {
+      const slS1 = v.s1 != null ? v.s1 * (1 - 0.01) : null;
+      const dungSlS1 = slS1 != null && v.slBB != null ? slS1 <= v.slBB : null;
+      html += `<div class="eavp-row">SLm (S1×0.99) = <b>${g(slS1)}</b> · BB thấp D×0.99 = <b>${g(v.slBB)}</b>`;
+      if (dungSlS1 != null) html += ` → dùng <b>${dungSlS1 ? 'SLm' : 'BB×0.99'}</b>`;
+      html += `</div>`;
+    } else if (v.loai === 'D') {
+      html += `<div class="eavp-row">SMA thấp nhất ${g(v.slSMA)}, BB thấp D ${g(v.slBB)} → lấy giá nhỏ hơn × 0.99</div>`;
+    }
+    if (t.entry) {
+      const slPct = ((t.entry - SL0) / t.entry * 100).toFixed(2);
+      html += `<div class="eavp-row"><b>${slPct}%</b> dưới giá vào</div>`;
+    }
+    html += `<div class="eavp-row eavp-note">SL bám theo (trailing) mỗi khi nến đóng.</div>`;
+  }
+
+  // D. Cụm co bó
+  html += `<div class="eavp-sec">Cụm co bó khi vào lệnh</div>`;
+  html += `<div class="eavp-row">Khung <b>${v.khung}</b> (K=${v.K} đường gần giá nhất)</div>`;
+  let rowW = `Độ rộng <b>${so(v.w)}</b>% (ngưỡng ≤ 3%)`;
+  if (v.d != null) rowW += ` · cách giá <b>${so(v.d)}</b>%`;
+  html += `<div class="eavp-row">${rowW}</div>`;
+  html += `<div class="eavp-row">S1 (thấp nhất) <b>${g(v.s1)}</b> · S_cao <b>${g(v.st)}</b></div>`;
+  if (Array.isArray(v.duong) && v.duong.length) {
+    html += `<div class="eavp-row eavp-sma-list">${v.duong.map(x => `SMA${x.p}: ${g(x.v)}`).join(' · ')}</div>`;
+  }
+  html += `</div>`;
+
+  el.innerHTML = html;
+  el.style.display = '';
+  eaVaoPopupTrade = t;
+}
 
 // Đường đoạn: lệnh đang mở (entry) + SL + buy limit chờ — dùng primitive thay createPriceLine
 function eaVeOpenLines(kq) {

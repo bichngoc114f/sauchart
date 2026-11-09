@@ -517,3 +517,54 @@ button { font-family: inherit; }
   padding: 1px 3px;
   text-align: center;
 }
+
+/* Popup chi tiết lệnh vào (bấm mũi tên mua trên biểu đồ) */
+.ea-vao-popup {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 15;
+  background: rgba(14,16,21,0.95);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: 70vh;
+  overflow-y: auto;
+  color: var(--text);
+  pointer-events: all;
+}
+.eavp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 9px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  background: rgba(14,16,21,0.98);
+}
+.eavp-leg { font-weight: 800; }
+.eavp-close {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 13px; padding: 0 2px; line-height: 1; flex-shrink: 0;
+}
+.eavp-body { padding: 2px 0 6px; }
+.eavp-top { padding: 3px 10px; line-height: 1.6; }
+.eavp-sec {
+  padding: 5px 10px 2px;
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  margin-top: 2px;
+}
+.eavp-row { padding: 1px 10px; line-height: 1.65; }
+.eavp-note { color: var(--muted); font-style: italic; }
+.eavp-na { color: var(--muted); }
+.eavp-sma-list { word-break: break-all; color: #9ca3af; }
