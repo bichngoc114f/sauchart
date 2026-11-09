@@ -1868,7 +1868,7 @@ async function autoLamMoi(ma) {
     }
   }
   if (caiDatEA.on && eaCoHoTro() && !eaLoading) {
-    if (eaIsF2()) delete eaF2KetQua[ma];
+    if (eaIsF3()) delete eaF3KetQua[ma];
     else delete eaKetQua[ma];
     chayEA();
   }
@@ -2396,14 +2396,14 @@ document.getElementById('btnCaiDat').onclick = () => { panel.hidden = !panel.hid
 document.getElementById('btnDong').onclick = () => { panel.hidden = true; };
 panel.onclick = (e) => { if (e.target === panel) panel.hidden = true; };
 
-// ---------- 11. EA L5 / F1 ----------
+// ---------- 11. EA L5 / F3 ----------
 const EA_MAUS = { D: '#f5c518', H4: '#00bcd4', H8: '#ab47bc', H12: '#ff7043', Trap: '#66bb6a' };
 const EA_LUONGS = ['D', 'H4', 'H8', 'H12', 'Trap'];
 const EA_MA_HO_TRO = ['BTCUSDT', 'ETHUSDT', 'PAXGUSDT'];
 
-const EA_F2_MAUS = { H2: '#f0a030', H4: '#4fc3f7', D: '#d65db1' };
-const EA_F2_LUONGS = ['H2', 'H4', 'D'];
-const EA_F2_DEFAULT = { H2: true, H4: true, D: true };
+const EA_F3_MAUS = { H2: '#f0a030', H4: '#4fc3f7', D: '#d65db1', H1: '#66bb6a', M30: '#ff7043', M15: '#ab47bc' };
+const EA_F3_LUONGS = ['H2', 'H4', 'D', 'H1', 'M30', 'M15'];
+const EA_F3_DEFAULT = { H2: true, H4: true, D: true, H1: true, M30: true, M15: true };
 
 const EA_S1_MAUS = { W: '#f5c518', D: '#00bcd4', '2D': '#ab47bc' };
 const S1_LUONGS = ['W', 'D', '2D'];
@@ -2412,12 +2412,12 @@ let caiDatS1 = Object.assign({}, S1_DEFAULT, docBoNho('eaS1', {}));
 
 const EA_DEFAULT = { on: false, D: true, H4: true, H8: true, H12: true, Trap: true, entry: true, sltp: true, pnl: true, hist: true, bts: true, ds: false };
 let caiDatEA = Object.assign({}, EA_DEFAULT, docBoNho('ea', {}));
-let caiDatF1 = Object.assign({}, EA_F2_DEFAULT, docBoNho('eaF1', {}));
-let eaLoai = docBoNho('eaLoai', 'L5'); // 'L5' hoặc 'F2' (chỉ dùng cho crypto)
-if (eaLoai === 'F1') { eaLoai = 'F2'; ghiBoNho('eaLoai', 'F2'); }
+let caiDatF3 = Object.assign({}, EA_F3_DEFAULT, docBoNho('eaF3', {}));
+let eaLoai = docBoNho('eaLoai', 'L5'); // 'L5' hoặc 'F3' (chỉ dùng cho crypto)
+if (eaLoai === 'F1' || eaLoai === 'F2') { eaLoai = 'F3'; ghiBoNho('eaLoai', 'F3'); }
 
 let eaKetQua = {};        // { 'BTCUSDT': { trades, status, thongKe } } — L5 / S1
-let eaF2KetQua = {};      // { 'BTCUSDT': { trades, status, thongKe } } — F2
+let eaF3KetQua = {};      // { 'BTCUSDT': { trades, status, thongKe } } — F3
 let eaTimerRefresh = null;
 let eaHistMarkers = null;  // markers lịch sử (LC.createSeriesMarkers)
 let eaHistPrim = null;     // primitive vẽ đường nối entry-exit
@@ -2426,21 +2426,21 @@ let eaLoading = false;
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
-function eaIsF2() { return !eaIsVN() && eaLoai === 'F2'; }
-function eaGetKetQua() { return eaIsF2() ? eaF2KetQua[maHienTai] : eaKetQua[maHienTai]; }
+function eaIsF3() { return !eaIsVN() && eaLoai === 'F3'; }
+function eaGetKetQua() { return eaIsF3() ? eaF3KetQua[maHienTai] : eaKetQua[maHienTai]; }
 function eaLegEnabled(leg) {
   if (eaIsVN()) return !!caiDatS1[leg];
-  if (eaIsF2()) return !!caiDatF1[leg];
+  if (eaIsF3()) return !!caiDatF3[leg];
   return !!caiDatEA[leg];
 }
 function eaLegMau(leg) {
   if (eaIsVN()) return EA_S1_MAUS[leg] || '#aaa';
-  if (eaIsF2()) return EA_F2_MAUS[leg] || '#aaa';
+  if (eaIsF3()) return EA_F3_MAUS[leg] || '#aaa';
   return EA_MAUS[leg] || '#aaa';
 }
 function eaLuongs() {
   if (eaIsVN()) return S1_LUONGS;
-  if (eaIsF2()) return EA_F2_LUONGS;
+  if (eaIsF3()) return EA_F3_LUONGS;
   return EA_LUONGS;
 }
 function eaFmtNgay(ms) {
@@ -2693,7 +2693,7 @@ function eaVeOpenLines(kq) {
       slItems.push({ price: lastSL, label: `SL (${tr.leg})`, color: '#ef5350' });
     }
     // Buy Limit chờ (L5 only)
-    if (!eaIsVN() && !eaIsF2()) {
+    if (!eaIsVN() && !eaIsF3()) {
       const legs = kq.status?.legs || {};
       for (const l of EA_LUONGS) {
         if (!caiDatEA[l]) continue;
@@ -2719,11 +2719,11 @@ function eaVeStatus(kq) {
   if (!kq || !caiDatEA.bts) { el.style.display = 'none'; return; }
   el.style.left = '8px';
 
-  if (eaIsF2()) {
+  if (eaIsF3()) {
     const legs = kq.status?.legs || {};
     const tk = kq.thongKe || {};
     const fmtLeg = (l) => {
-      if (!caiDatF1[l]) return '';
+      if (!caiDatF3[l]) return '';
       const d = legs[l];
       let txt = '';
       if (d?.pos) txt = `Mở @${dinhDangGia(d.pos.price)} · SL ${dinhDangGia(d.pos.sl)}`;
@@ -2731,11 +2731,15 @@ function eaVeStatus(kq) {
       if (l === 'D' && d?.cho) txt += ` · ⏳ chờ rào ${d.cho.khung} (SL dự kiến ${dinhDangGia(d.cho.sl)})`;
       if (l !== 'D') {
         const cb = d?.coBo;
-        if (cb != null) txt += cb ? ' · Co bó ✓' : ' · Co bó ✗';
+        if (cb != null) {
+          const wStr = d?.w != null ? ` (${d.w.toFixed(1)}%)` : '';
+          txt += cb ? ` · Co bó ✓${wStr}` : ' · Co bó ✗';
+        }
+        if (d != null && 'tim' in d && d.tim === false) txt += ' · ngoài vùng tím';
       }
       const t = tk[l];
       const tkStr = t ? ` <span style="color:#888;font-size:9px">(${t.total}l·${t.thang}w·${t.tongPct>=0?'+':''}${t.tongPct}%)</span>` : '';
-      return `<div class="eas-row"><span class="eas-leg" style="color:${EA_F2_MAUS[l]}">${l}</span><span>${txt}${tkStr}</span></div>`;
+      return `<div class="eas-row"><span class="eas-leg" style="color:${EA_F3_MAUS[l]}">${l}</span><span>${txt}${tkStr}</span></div>`;
     };
     const ngay = legs.D?.ngay;
     let ngayStr = '—';
@@ -2747,9 +2751,9 @@ function eaVeStatus(kq) {
       ngayStr = `BB ${bbS} · SMA ${smaS} · RSI ${rsiS} · L ${lS}${ngay.cumThap ? ` · cụm thấp nhất ${ngay.cumThap}` : ''}`;
     }
     el.innerHTML =
-      `<div class="eas-head"><span>EA F2</span><button class="eas-collapse" onclick="this.closest('.ea-status').classList.toggle('eas-thu')">◀</button></div>` +
+      `<div class="eas-head"><span>EA F3</span><button class="eas-collapse" onclick="this.closest('.ea-status').classList.toggle('eas-thu')">◀</button></div>` +
       `<div class="eas-body">` +
-      EA_F2_LUONGS.map(fmtLeg).join('') +
+      EA_F3_LUONGS.map(fmtLeg).join('') +
       `<div class="eas-row"><span class="eas-leg" style="color:#aaa">Ngày D</span><span style="font-size:10px">${ngayStr}</span></div>` +
       `</div>`;
     el.style.display = '';
@@ -2871,14 +2875,14 @@ async function chayEA() {
   eaLoading = true;
   try {
     const isVN = eaIsVN();
-    const isF1 = eaIsF2();
+    const isF3 = eaIsF3();
     let tenEA = 'EA L5';
     if (isVN) {
       eaKetQua[maHienTai] = await S1Data.chayS1(maHienTai, msg => datTrangThai(msg));
       tenEA = 'EA S1';
-    } else if (isF1) {
-      eaF2KetQua[maHienTai] = await F2Data.chayF2(maHienTai, msg => datTrangThai(msg));
-      tenEA = 'EA F2';
+    } else if (isF3) {
+      eaF3KetQua[maHienTai] = await F3Data.chayF3(maHienTai, msg => datTrangThai(msg));
+      tenEA = 'EA F3';
     } else {
       eaKetQua[maHienTai] = await L5Data.chayL5(maHienTai, msg => datTrangThai(msg));
     }
@@ -2900,7 +2904,7 @@ function eaLapLichLamMoi() {
   const delay = Math.max(next - now, 10000);
   eaTimerRefresh = setTimeout(async () => {
     if (caiDatEA.on && eaCoHoTro()) {
-      if (eaIsF2()) delete eaF2KetQua[maHienTai];
+      if (eaIsF3()) delete eaF3KetQua[maHienTai];
       else delete eaKetQua[maHienTai];
       await napBieuDo();
       await chayEA();
@@ -2918,14 +2922,14 @@ function veNutEA() {
   const note = document.getElementById('eaVNNote');
   if (note) note.style.display = 'none';
   const isVN = eaIsVN();
-  const isF1 = eaIsF2();
+  const isF3 = eaIsF3();
   const l5 = document.getElementById('eaL5Luong');
   const s1 = document.getElementById('eaS1Luong');
-  const f1 = document.getElementById('eaF1Luong');
+  const f3 = document.getElementById('eaF3Luong');
   const loaiRow = document.getElementById('eaLoaiRow');
-  if (l5) l5.style.display = (!isVN && !isF1) ? '' : 'none';
+  if (l5) l5.style.display = (!isVN && !isF3) ? '' : 'none';
   if (s1) s1.style.display = isVN ? '' : 'none';
-  if (f1) f1.style.display = isF1 ? '' : 'none';
+  if (f3) f3.style.display = isF3 ? '' : 'none';
   if (loaiRow) {
     loaiRow.style.display = isVN ? 'none' : 'flex';
     // Cập nhật trạng thái active cho các nút loại
@@ -2934,7 +2938,7 @@ function veNutEA() {
     });
   }
   const nameEl = document.querySelector('#eaL5Row span');
-  if (nameEl) nameEl.textContent = isVN ? 'S1' : (isF1 ? 'EA' : 'L5');
+  if (nameEl) nameEl.textContent = isVN ? 'S1' : (isF3 ? 'EA' : 'L5');
 }
 
 function khoiDongEAPanel() {
@@ -2949,10 +2953,10 @@ function khoiDongEAPanel() {
     document.getElementById('eaTrades').style.display = 'none';
   };
 
-  // Loại EA: L5 / F2 (chỉ cho crypto)
+  // Loại EA: L5 / F3 (chỉ cho crypto)
   const loaiRow = document.getElementById('eaLoaiRow');
   if (loaiRow) {
-    ['L5', 'F2'].forEach(loai => {
+    ['L5', 'F3'].forEach(loai => {
       const b = document.createElement('button');
       b.className = 'cobo-btn' + (eaLoai === loai ? ' active' : '');
       b.dataset.loai = loai;
@@ -2978,9 +2982,9 @@ function khoiDongEAPanel() {
     const cb = document.querySelector(`.ea-luong[data-leg="${l}"]`);
     if (cb) cb.checked = !!caiDatEA[l];
   });
-  EA_F2_LUONGS.forEach(l => {
-    const cb = document.querySelector(`.ea-f1-luong[data-leg="${l}"]`);
-    if (cb) cb.checked = !!caiDatF1[l];
+  EA_F3_LUONGS.forEach(l => {
+    const cb = document.querySelector(`.ea-f3-luong[data-leg="${l}"]`);
+    if (cb) cb.checked = !!caiDatF3[l];
   });
   document.getElementById('eaShowEntry').checked = !!caiDatEA.entry;
   document.getElementById('eaShowSLTP').checked = !!caiDatEA.sltp;
@@ -3020,11 +3024,11 @@ function khoiDongEAPanel() {
     };
   });
 
-  // Leg toggles F1
-  document.querySelectorAll('.ea-f1-luong').forEach(cb => {
+  // Leg toggles F3
+  document.querySelectorAll('.ea-f3-luong').forEach(cb => {
     cb.onchange = (e) => {
-      caiDatF1[e.target.dataset.leg] = e.target.checked;
-      ghiBoNho('eaF1', caiDatF1);
+      caiDatF3[e.target.dataset.leg] = e.target.checked;
+      ghiBoNho('eaF3', caiDatF3);
       veEA();
     };
   });

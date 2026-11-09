@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" href="icon-180.png" />
   <link rel="manifest" href="manifest.json" />
 
-  <link rel="stylesheet" href="style.css?v=202611061300" />
+  <link rel="stylesheet" href="style.css?v=202611091000" />
   <!-- Thư viện vẽ biểu đồ mã nguồn mở của chính TradingView -->
   <script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -88,14 +88,20 @@
           <span>L5</span>
         </label>
         <div id="eaLoaiRow" style="display:none;padding:2px 14px 4px;gap:6px;flex-wrap:wrap"></div>
-        <div id="eaF1Luong" style="display:none">
-          <div class="panel-nhom">Luồng F2</div>
-          <label class="panel-dong"><input type="checkbox" class="ea-f1-luong" data-leg="H2">
+        <div id="eaF3Luong" style="display:none">
+          <div class="panel-nhom">Luồng F3</div>
+          <label class="panel-dong"><input type="checkbox" class="ea-f3-luong" data-leg="H2">
             <i style="background:#f0a030;width:14px;height:14px;border-radius:3px"></i><span>H2</span></label>
-          <label class="panel-dong"><input type="checkbox" class="ea-f1-luong" data-leg="H4">
+          <label class="panel-dong"><input type="checkbox" class="ea-f3-luong" data-leg="H4">
             <i style="background:#4fc3f7;width:14px;height:14px;border-radius:3px"></i><span>H4</span></label>
-          <label class="panel-dong"><input type="checkbox" class="ea-f1-luong" data-leg="D">
+          <label class="panel-dong"><input type="checkbox" class="ea-f3-luong" data-leg="D">
             <i style="background:#d65db1;width:14px;height:14px;border-radius:3px"></i><span>D</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-f3-luong" data-leg="H1">
+            <i style="background:#66bb6a;width:14px;height:14px;border-radius:3px"></i><span>H1</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-f3-luong" data-leg="M30">
+            <i style="background:#ff7043;width:14px;height:14px;border-radius:3px"></i><span>M30</span></label>
+          <label class="panel-dong"><input type="checkbox" class="ea-f3-luong" data-leg="M15">
+            <i style="background:#ab47bc;width:14px;height:14px;border-radius:3px"></i><span>M15</span></label>
         </div>
         <div id="eaL5Luong">
           <div class="panel-nhom">Luồng L5</div>
@@ -167,13 +173,13 @@
     </div>
   </div>
 
-  <script src="ea-l5-engine.js?v=202611061300"></script>
-  <script src="ea-l5-data.js?v=202611061300"></script>
-  <script src="ea-f2-engine.js?v=202611061300"></script>
-  <script src="ea-f2-data.js?v=202611061300"></script>
-  <script src="ea-s1-engine.js?v=202611061300"></script>
-  <script src="ea-s1-data.js?v=202611061300"></script>
-  <script src="indicators.js?v=202611061300"></script>
-  <script src="app.js?v=202611061300"></script>
+  <script src="ea-l5-engine.js?v=202611091000"></script>
+  <script src="ea-l5-data.js?v=202611091000"></script>
+  <script src="ea-f3-engine.js?v=202611091000"></script>
+  <script src="ea-f3-data.js?v=202611091000"></script>
+  <script src="ea-s1-engine.js?v=202611091000"></script>
+  <script src="ea-s1-data.js?v=202611091000"></script>
+  <script src="indicators.js?v=202611091000"></script>
+  <script src="app.js?v=202611091000"></script>
 </body>
 </html>
