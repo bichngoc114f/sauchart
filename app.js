@@ -2513,7 +2513,7 @@ class EaHistPrimitive {
                 const y2 = self._series.priceToCoordinate(tr.xp);
                 if (x1 == null || y1 == null || x2 == null || y2 == null) continue;
                 ctx.setLineDash([4 * hpr, 3 * hpr]);
-                ctx.strokeStyle = tr.win ? '#2962ff' : '#ef5350';
+                ctx.strokeStyle = tr.win ? '#00c853' : '#ef5350';
                 ctx.beginPath();
                 ctx.moveTo(x1 * hpr, y1 * vpr);
                 ctx.lineTo(x2 * hpr, y2 * vpr);
@@ -2560,7 +2560,7 @@ class EaOpenLinesPrimitive {
         e.color = pct >= 0 ? '#26a69a' : '#ef5350';
       } else {
         e.label = base;
-        e.color = '#2962ff';
+        e.color = '#00c853';
       }
       this._lines[i].label = e.label;
       this._lines[i].color = e.color;
@@ -2656,7 +2656,7 @@ function eaVeHist(kq) {
     if (!eaLegEnabled(tr.leg)) continue;
     const et = eaSnapToNen(tr.entryT);
     if (et === null) continue;
-    markers.push({ time: et, position: 'atPriceBottom', price: tr.entry, color: '#2962ff', shape: 'arrowUp', size: 1 });
+    markers.push({ time: et, position: 'atPriceBottom', price: tr.entry, color: '#00c853', shape: 'arrowUp', size: 1.5 });
     if (tr.exitT !== null) {
       const xt = eaSnapToNen(tr.exitT);
       if (xt !== null) {
@@ -2827,7 +2827,7 @@ function eaVeOpenLines(kq) {
   if (caiDatEA.entry) {
     for (const tr of open) {
       const snapTime = eaSnapToNen(tr.entryT);
-      entryItems.push({ price: tr.entry, label: `buy (${tr.leg})`, color: '#2962ff', snapTime, trade: tr });
+      entryItems.push({ price: tr.entry, label: `buy (${tr.leg})`, color: '#00c853', snapTime, trade: tr });
     }
   }
   if (caiDatEA.sltp) {
