@@ -1121,6 +1121,7 @@ async function napBieuDo() {
     duLieuNen = nen;
     nenTienTo = tienTo.filter((x) => x.time < nen[0].time);
     veToanBo();
+    if (fibPrim) fibPrim.update();
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
@@ -3357,31 +3358,35 @@ class FibPrimitive {
                 const isSel = !isP && fb.id === fibSelected;
                 if (Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
 
+                // Tọa độ neo — chỉ dùng cho đường chéo & chấm neo; level lines không cần
                 const x1c = ts.timeToCoordinate(fb.t1);
                 const y1c = self._series.priceToCoordinate(fb.p1);
                 const x2c = ts.timeToCoordinate(fb.t2);
                 const y2c = self._series.priceToCoordinate(fb.p2);
-                if (x1c == null || y1c == null || x2c == null || y2c == null) continue;
+                const x1b = x1c != null ? x1c * hpr : null;
+                const y1b = y1c != null ? y1c * vpr : null;
+                const x2b = x2c != null ? x2c * hpr : null;
+                const y2b = y2c != null ? y2c * vpr : null;
 
-                const x1b = x1c * hpr, y1b = y1c * vpr;
-                const x2b = x2c * hpr, y2b = y2c * vpr;
                 const xLB = 0;
                 const xRB = bitmapSize.width;
                 const lw = isP ? 0.5 * hpr : (isSel ? hpr : 0.5 * hpr);
                 ctx.globalAlpha = isP ? 0.6 : 1;
 
-                // Đường chéo nét đứt
-                ctx.save();
-                ctx.setLineDash([4 * hpr, 3 * hpr]);
-                ctx.strokeStyle = '#777';
-                ctx.lineWidth = lw;
-                ctx.beginPath();
-                ctx.moveTo(x1b, y1b);
-                ctx.lineTo(x2b, y2b);
-                ctx.stroke();
-                ctx.restore();
+                // Đường chéo nét đứt (chỉ khi cả 2 neo có tọa độ)
+                if (x1b != null && y1b != null && x2b != null && y2b != null) {
+                  ctx.save();
+                  ctx.setLineDash([4 * hpr, 3 * hpr]);
+                  ctx.strokeStyle = '#777';
+                  ctx.lineWidth = lw;
+                  ctx.beginPath();
+                  ctx.moveTo(x1b, y1b);
+                  ctx.lineTo(x2b, y2b);
+                  ctx.stroke();
+                  ctx.restore();
+                }
 
-                // Tính tọa độ y của từng mức
+                // Tính tọa độ y của từng mức (chỉ phụ thuộc vào giá)
                 const levs = FIB_LEVELS.map(lv => {
                   const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
                   const yc = self._series.priceToCoordinate(p);
@@ -3396,7 +3401,7 @@ class FibPrimitive {
                   ctx.fillRect(xLB, Math.min(ya, yb2), xRB - xLB, Math.abs(yb2 - ya));
                 }
 
-                // Đường ngang (full chiều ngang)
+                // Đường ngang full chiều ngang (chỉ phụ thuộc vào giá)
                 for (const lv of levs) {
                   if (lv.yb == null) continue;
                   ctx.strokeStyle = lv.mau;
@@ -3407,11 +3412,12 @@ class FibPrimitive {
                   ctx.stroke();
                 }
 
-                // Chấm neo khi được chọn
+                // Chấm neo khi được chọn (chỉ khi có tọa độ)
                 if (isSel) {
-                  for (const { xb, yb } of [{ xb: x1b, yb: y1b }, { xb: x2b, yb: y2b }]) {
+                  for (const pt of [{ xb: x1b, yb: y1b }, { xb: x2b, yb: y2b }]) {
+                    if (pt.xb == null || pt.yb == null) continue;
                     ctx.beginPath();
-                    ctx.arc(xb, yb, 5 * hpr, 0, Math.PI * 2);
+                    ctx.arc(pt.xb, pt.yb, 5 * hpr, 0, Math.PI * 2);
                     ctx.fillStyle = '#fff';
                     ctx.fill();
                     ctx.strokeStyle = '#aaa';
