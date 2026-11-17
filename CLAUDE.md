@@ -12,3 +12,11 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - coboLoai=2 (SMA+BB): BB shift +1 ngày, SMA mỗi khung shift +độ dài khung; TÍM=BB∩SMA, VÀNG=BB−SMA, XÁM=SMA−BB.
 - EA hiện chỉ còn F3 (6 luồng: H2, H4, D, H1, M30, M15); F1 và F2 đã bị xóa.
 - KHÔNG sửa `ea-*.js`, `*-thong-bao.cjs`. Không thấy file thì DỪNG và báo.
+
+## Fibonacci
+- Nút "Vẽ FIB" trong toolbar (id `btnVeFib`), nút "✕ Xóa Fib" (id `btnXoaFib`, ẩn khi chưa có Fib).
+- State: `fibPrim`, `fibBatMode`, `fibVePhase`, `fibDangVe`, `fibSelected`, `fibDragState`, `_fibDsCache`.
+- Storage: localStorage key `'sauchart.fib.<MA>'`, value `[{id, t1, p1, t2, p2}]` (t = UTC seconds).
+- `fibTai()` gọi từ `napBieuDo()` để reset khi đổi mã/khung giờ.
+- `FibPrimitive` gắn vĩnh viễn vào `nenSeries` qua `fibKhoiDong()` ở cuối file.
+- Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.

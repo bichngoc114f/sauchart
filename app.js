@@ -953,16 +953,38 @@ chart.subscribeCrosshairMove((param) => {
   }
   capNhatLegend(i);
   capNhatNhanGia();
-  // Đổi con trỏ khi hover gần mũi tên vào lệnh EA
-  if (param.point && caiDatEA.hist && caiDatEA.on && eaCoHoTro()) {
-    const near = eaVaoTimGanNhat(param.point);
-    const canvas = document.querySelector('#chart canvas');
-    if (canvas) canvas.style.cursor = near ? 'pointer' : '';
+  // Con trỏ: Fib mode > anchor Fib > mũi tên EA > mặc định
+  const _cnv = document.querySelector('#chart canvas');
+  if (_cnv) {
+    if (fibBatMode) {
+      _cnv.style.cursor = 'crosshair';
+    } else if (param.point && fibSelected && fibAnchorHitTest(param.point.x, param.point.y, 10)) {
+      _cnv.style.cursor = 'move';
+    } else if (param.point && caiDatEA.hist && caiDatEA.on && eaCoHoTro()) {
+      const near = eaVaoTimGanNhat(param.point);
+      _cnv.style.cursor = near ? 'pointer' : '';
+    } else {
+      _cnv.style.cursor = '';
+    }
   }
 });
 
-// Bấm vào mũi tên vào lệnh EA → hiện popup
+// Bấm vào biểu đồ → chọn Fib hoặc hiện popup EA
 chart.subscribeClick((param) => {
+  if (fibBatMode) return;
+  if (param.point) {
+    const isMob = window.matchMedia('(pointer: coarse)').matches;
+    const thr = isMob ? 14 : 8;
+    const hit = fibHitTest(param.point.x, param.point.y, thr);
+    if (hit !== null) {
+      fibSelected = fibSelected === hit ? null : hit;
+      fibCapNhatXoaBtn();
+      eaVaoDongBang();
+      if (fibPrim) fibPrim.update();
+      return;
+    }
+    if (fibSelected) { fibSelected = null; fibCapNhatXoaBtn(); if (fibPrim) fibPrim.update(); }
+  }
   if (!caiDatEA.hist || !eaCoHoTro() || !caiDatEA.on) return;
   if (!param.point) { eaVaoDongBang(); return; }
   const trade = eaVaoTimGanNhat(param.point);
@@ -1059,6 +1081,7 @@ function timNen(t) {
 // Tải lại toàn bộ biểu đồ khi đổi mã / khung giờ
 async function napBieuDo() {
   eaVaoDongBang();
+  fibTai();
   const toi = ++phien;
   dangTaiThem = false;
   daHetLichSu = false;
@@ -2442,6 +2465,17 @@ let eaOpenPrim = null;     // EaOpenLinesPrimitive cho lệnh đang mở
 let eaLoading = false;
 let eaVaoPopupTrade = null; // lệnh đang hiện popup chi tiết (null = ẩn)
 
+// --- Fibonacci state ---
+let fibPrim = null;
+let fibBatMode = false;
+let fibVePhase = 0;      // 0=chờ điểm 1, 1=preview/chờ điểm 2
+let fibDangVe = null;    // { t1, p1, t2, p2 } preview đang vẽ
+let fibP1_cx = 0, fibP1_cy = 0;
+let fibPointerActive = false;
+let fibSelected = null;
+let fibDragState = null; // { which: 1|2 }
+let _fibDsCache = null;  // { ma, ds }
+
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsF3() { return !eaIsVN() && eaLoai === 'F3'; }
@@ -3280,3 +3314,414 @@ _applyPhongToBtn();
     });
   });
 }());
+
+// ==================== FIBONACCI RETRACEMENT ====================
+
+const FIB_LEVELS = [
+  { r: 0,     label: '0',     mau: '#9e9e9e' },
+  { r: 0.236, label: '0.236', mau: '#ef5350' },
+  { r: 0.382, label: '0.382', mau: '#ff9800' },
+  { r: 0.5,   label: '0.5',   mau: '#4caf50' },
+  { r: 0.618, label: '0.618', mau: '#26a69a' },
+  { r: 0.786, label: '0.786', mau: '#29b6f6' },
+  { r: 1,     label: '1',     mau: '#9e9e9e' },
+  { r: 1.618, label: '1.618', mau: '#ab47bc' },
+  { r: 2.618, label: '2.618', mau: '#ec407a' },
+];
+
+class FibPrimitive {
+  constructor() { this._series = null; this._chart = null; this._requestUpdate = null; }
+  attached(p) { this._series = p.series; this._chart = p.chart; this._requestUpdate = p.requestUpdate; }
+  detached() { this._series = null; this._chart = null; this._requestUpdate = null; }
+  updateAllViews() {}
+  update() { if (this._requestUpdate) this._requestUpdate(); }
+
+  paneViews() {
+    const self = this;
+    return [{
+      renderer() {
+        return {
+          draw(target) {
+            if (!self._series || !self._chart) return;
+            const ds = fibLayDS();
+            const hasPreview = fibDangVe && fibDangVe.t2 != null;
+            if (!ds.length && !hasPreview) return;
+            target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
+              const ts = self._chart.timeScale();
+              ctx.save();
+              const all = [...ds];
+              if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
+
+              for (const fb of all) {
+                const isP = fb.id === '__prev__';
+                const isSel = !isP && fb.id === fibSelected;
+                if (Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
+
+                const x1c = ts.timeToCoordinate(fb.t1);
+                const y1c = self._series.priceToCoordinate(fb.p1);
+                const x2c = ts.timeToCoordinate(fb.t2);
+                const y2c = self._series.priceToCoordinate(fb.p2);
+                if (x1c == null || y1c == null || x2c == null || y2c == null) continue;
+
+                const x1b = x1c * hpr, y1b = y1c * vpr;
+                const x2b = x2c * hpr, y2b = y2c * vpr;
+                const xLB = Math.min(x1b, x2b);
+                const xRB = bitmapSize.width;
+                const lw = isP ? 0.7 * hpr : (isSel ? 2 * hpr : hpr);
+                ctx.globalAlpha = isP ? 0.6 : 1;
+
+                // Đường chéo nét đứt
+                ctx.save();
+                ctx.setLineDash([4 * hpr, 3 * hpr]);
+                ctx.strokeStyle = '#777';
+                ctx.lineWidth = lw;
+                ctx.beginPath();
+                ctx.moveTo(x1b, y1b);
+                ctx.lineTo(x2b, y2b);
+                ctx.stroke();
+                ctx.restore();
+
+                // Tính tọa độ y của từng mức
+                const levs = FIB_LEVELS.map(lv => {
+                  const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
+                  const yc = self._series.priceToCoordinate(p);
+                  return { ...lv, p, yb: yc != null ? yc * vpr : null };
+                });
+
+                // Tô nền giữa các mức
+                for (let i = 0; i < levs.length - 1; i++) {
+                  if (levs[i].yb == null || levs[i + 1].yb == null) continue;
+                  const ya = levs[i].yb, yb2 = levs[i + 1].yb;
+                  ctx.fillStyle = levs[i].mau + '0f';
+                  ctx.fillRect(xLB, Math.min(ya, yb2), xRB - xLB, Math.abs(yb2 - ya));
+                }
+
+                // Đường ngang + nhãn
+                ctx.font = `${Math.round(10 * vpr)}px sans-serif`;
+                ctx.textBaseline = 'bottom';
+                for (const lv of levs) {
+                  if (lv.yb == null) continue;
+                  ctx.strokeStyle = lv.mau;
+                  ctx.lineWidth = lw;
+                  ctx.beginPath();
+                  ctx.moveTo(xLB, lv.yb);
+                  ctx.lineTo(xRB, lv.yb);
+                  ctx.stroke();
+                  ctx.fillStyle = lv.mau;
+                  ctx.fillText(`${lv.label} (${dinhDangGia(lv.p)})`, xLB + 4 * hpr, lv.yb - 2 * vpr);
+                }
+
+                // Chấm neo khi được chọn
+                if (isSel) {
+                  for (const { xb, yb } of [{ xb: x1b, yb: y1b }, { xb: x2b, yb: y2b }]) {
+                    ctx.beginPath();
+                    ctx.arc(xb, yb, 5 * hpr, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                    ctx.strokeStyle = '#aaa';
+                    ctx.lineWidth = hpr;
+                    ctx.stroke();
+                  }
+                }
+              }
+              ctx.restore();
+            });
+          }
+        };
+      }
+    }];
+  }
+}
+
+function fibLayDS() {
+  if (_fibDsCache && _fibDsCache.ma === maHienTai) return _fibDsCache.ds;
+  let ds = [];
+  try { ds = docBoNho('fib.' + maHienTai, []); } catch (e) {}
+  _fibDsCache = { ma: maHienTai, ds };
+  return ds;
+}
+
+function fibLuuDS(ds) {
+  _fibDsCache = { ma: maHienTai, ds };
+  try { ghiBoNho('fib.' + maHienTai, ds); } catch (e) {}
+}
+
+function fibMoiId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
+function fibGetXY(e) {
+  const r = document.getElementById('chart').getBoundingClientRect();
+  const cx = e.clientX ?? (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : 0);
+  const cy = e.clientY ?? (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : 0);
+  return { x: cx - r.left, y: cy - r.top };
+}
+
+function fibXYToAnchor(x, y) {
+  let t = 0;
+  if (duLieuNen.length) {
+    const rt = chart.timeScale().coordinateToTime(x);
+    const lastT = duLieuNen[duLieuNen.length - 1].time;
+    if (rt == null) {
+      t = lastT;
+    } else {
+      t = rt;
+      // snap đến cây nến gần nhất
+      let lo = 0, hi = duLieuNen.length - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (duLieuNen[m].time <= t) lo = m; else hi = m - 1; }
+      if (lo + 1 < duLieuNen.length && Math.abs(duLieuNen[lo + 1].time - t) < Math.abs(duLieuNen[lo].time - t)) lo++;
+      t = duLieuNen[lo].time;
+    }
+  }
+  const p = nenSeries.coordinateToPrice(y) || 0;
+  return { t, p };
+}
+
+function fibHitTest(x, y, thr) {
+  const ds = fibLayDS();
+  for (let i = ds.length - 1; i >= 0; i--) {
+    const fb = ds[i];
+    if (Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
+    const x1c = chart.timeScale().timeToCoordinate(fb.t1);
+    const x2c = chart.timeScale().timeToCoordinate(fb.t2);
+    if (x1c == null || x2c == null) continue;
+    if (x < Math.min(x1c, x2c) - thr * 2) continue;
+    for (const lv of FIB_LEVELS) {
+      const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
+      const yc = nenSeries.priceToCoordinate(p);
+      if (yc == null) continue;
+      if (Math.abs(y - yc) <= thr) return fb.id;
+    }
+  }
+  return null;
+}
+
+function fibAnchorHitTest(x, y, thr) {
+  if (!fibSelected) return null;
+  const ds = fibLayDS();
+  const fb = ds.find(f => f.id === fibSelected);
+  if (!fb) return null;
+  const x1c = chart.timeScale().timeToCoordinate(fb.t1);
+  const y1c = nenSeries.priceToCoordinate(fb.p1);
+  const x2c = chart.timeScale().timeToCoordinate(fb.t2);
+  const y2c = nenSeries.priceToCoordinate(fb.p2);
+  if (x1c != null && y1c != null && Math.abs(x - x1c) <= thr && Math.abs(y - y1c) <= thr) return 1;
+  if (x2c != null && y2c != null && Math.abs(x - x2c) <= thr && Math.abs(y - y2c) <= thr) return 2;
+  return null;
+}
+
+function fibCapNhatNut() {
+  const ds = fibLayDS();
+  const btn = document.getElementById('btnXoaFib');
+  if (btn) btn.style.display = ds.length ? '' : 'none';
+}
+
+function fibCapNhatXoaBtn() {
+  const btn = document.getElementById('fibXoaChon');
+  if (btn) btn.style.display = (fibSelected && !fibBatMode) ? '' : 'none';
+}
+
+function fibVaoMode(bat) {
+  fibBatMode = bat;
+  fibVePhase = 0;
+  fibDangVe = null;
+  const btnVe = document.getElementById('btnVeFib');
+  const hint = document.getElementById('fibHint');
+  if (btnVe) btnVe.classList.toggle('active', bat);
+  if (hint) hint.style.display = bat ? '' : 'none';
+  if (bat) {
+    chart.applyOptions({ handleScroll: false, handleScale: false });
+    fibSelected = null;
+    fibCapNhatXoaBtn();
+    const c = document.querySelector('#chart canvas');
+    if (c) c.style.cursor = 'crosshair';
+  } else {
+    chart.applyOptions({ handleScroll: true, handleScale: true });
+    const c = document.querySelector('#chart canvas');
+    if (c) c.style.cursor = '';
+    if (fibPrim) fibPrim.update();
+  }
+}
+
+function fibVeComplet(x, y) {
+  if (!fibDangVe) return;
+  const a2 = fibXYToAnchor(x, y);
+  if (Math.abs(fibDangVe.p1 - a2.p) > 1e-6) {
+    const ds = fibLayDS();
+    ds.push({ id: fibMoiId(), t1: fibDangVe.t1, p1: fibDangVe.p1, t2: a2.t, p2: a2.p });
+    fibLuuDS(ds);
+  }
+  fibDangVe = null;
+  fibVaoMode(false);
+  fibCapNhatNut();
+}
+
+function fibXoaChon() {
+  if (!fibSelected) return;
+  const ds = fibLayDS().filter(f => f.id !== fibSelected);
+  fibLuuDS(ds);
+  fibSelected = null;
+  fibCapNhatXoaBtn();
+  fibCapNhatNut();
+  if (fibPrim) fibPrim.update();
+}
+
+function fibTai() {
+  _fibDsCache = null;
+  if (fibBatMode) fibVaoMode(false);
+  fibSelected = null;
+  fibDangVe = null;
+  fibVePhase = 0;
+  fibDragState = null;
+  fibPointerActive = false;
+  fibCapNhatXoaBtn();
+  fibCapNhatNut();
+  if (fibPrim) fibPrim.update();
+}
+
+function fibOnPointerDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const { x, y } = fibGetXY(e);
+
+  if (fibBatMode) {
+    if (fibVePhase === 0) {
+      const a = fibXYToAnchor(x, y);
+      fibDangVe = { t1: a.t, p1: a.p, t2: a.t, p2: a.p };
+      fibP1_cx = e.clientX; fibP1_cy = e.clientY;
+      fibVePhase = 1;
+      fibPointerActive = true;
+      if (fibPrim) fibPrim.update();
+    } else {
+      fibVeComplet(x, y);
+      fibPointerActive = false;
+    }
+    e.preventDefault();
+    return;
+  }
+
+  if (fibSelected) {
+    const isMob = window.matchMedia('(pointer: coarse)').matches;
+    const thr = isMob ? 16 : 10;
+    const which = fibAnchorHitTest(x, y, thr);
+    if (which) {
+      fibDragState = { which };
+      fibPointerActive = true;
+      chart.applyOptions({ handleScroll: false, handleScale: false });
+      e.preventDefault();
+    }
+  }
+}
+
+function fibOnPointerMove(e) {
+  const { x, y } = fibGetXY(e);
+
+  if (fibDragState && fibSelected) {
+    const a = fibXYToAnchor(x, y);
+    const ds = fibLayDS();
+    const fb = ds.find(f => f.id === fibSelected);
+    if (fb) {
+      if (fibDragState.which === 1) { fb.t1 = a.t; fb.p1 = a.p; }
+      else { fb.t2 = a.t; fb.p2 = a.p; }
+      if (fibPrim) fibPrim.update();
+    }
+    e.preventDefault();
+    return;
+  }
+
+  if (fibBatMode && fibVePhase === 1 && fibDangVe) {
+    const a = fibXYToAnchor(x, y);
+    fibDangVe.t2 = a.t;
+    fibDangVe.p2 = a.p;
+    if (fibPrim) fibPrim.update();
+  }
+}
+
+function fibOnPointerUp(e) {
+  const { x, y } = fibGetXY(e);
+
+  if (fibDragState && fibSelected) {
+    const a = fibXYToAnchor(x, y);
+    const ds = fibLayDS();
+    const fb = ds.find(f => f.id === fibSelected);
+    if (fb) {
+      if (fibDragState.which === 1) { fb.t1 = a.t; fb.p1 = a.p; }
+      else { fb.t2 = a.t; fb.p2 = a.p; }
+      fibLuuDS(ds);
+      if (fibPrim) fibPrim.update();
+    }
+    fibDragState = null;
+    fibPointerActive = false;
+    chart.applyOptions({ handleScroll: true, handleScale: true });
+    return;
+  }
+
+  if (fibBatMode && fibVePhase === 1 && fibPointerActive) {
+    const dx = e.clientX - fibP1_cx;
+    const dy = e.clientY - fibP1_cy;
+    if (Math.sqrt(dx * dx + dy * dy) > 5) {
+      fibVeComplet(x, y);
+    }
+    fibPointerActive = false;
+  }
+}
+
+function fibOnPointerCancel(e) {
+  if (fibDragState) {
+    _fibDsCache = null;
+    fibDragState = null;
+    fibPointerActive = false;
+    chart.applyOptions({ handleScroll: true, handleScale: true });
+    if (fibPrim) fibPrim.update();
+  }
+  if (fibBatMode && fibVePhase === 1) {
+    fibDangVe = null;
+    fibVePhase = 0;
+    fibPointerActive = false;
+    if (fibPrim) fibPrim.update();
+  }
+}
+
+function fibOnKeyDown(e) {
+  if (fibBatMode && e.key === 'Escape') {
+    fibDangVe = null;
+    fibVaoMode(false);
+  }
+  if (!fibBatMode && fibSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
+    const tag = document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    fibXoaChon();
+  }
+}
+
+function fibKhoiDong() {
+  fibPrim = new FibPrimitive();
+  nenSeries.attachPrimitive(fibPrim);
+
+  const chartEl = document.getElementById('chart');
+  chartEl.addEventListener('pointerdown', fibOnPointerDown);
+  chartEl.addEventListener('pointermove', fibOnPointerMove);
+  chartEl.addEventListener('pointerup', fibOnPointerUp);
+  chartEl.addEventListener('pointercancel', fibOnPointerCancel);
+  document.addEventListener('keydown', fibOnKeyDown);
+
+  const btnVe = document.getElementById('btnVeFib');
+  if (btnVe) btnVe.onclick = () => fibVaoMode(!fibBatMode);
+
+  const btnXoaTat = document.getElementById('btnXoaFib');
+  if (btnXoaTat) btnXoaTat.onclick = () => {
+    if (confirm('Xóa tất cả Fib trên mã ' + maHienTai + '?')) {
+      fibLuuDS([]);
+      fibSelected = null;
+      fibCapNhatXoaBtn();
+      fibCapNhatNut();
+      if (fibPrim) fibPrim.update();
+    }
+  };
+
+  const btnXoaChon = document.getElementById('fibXoaChon');
+  if (btnXoaChon) btnXoaChon.onclick = fibXoaChon;
+
+  fibCapNhatNut();
+}
+
+fibKhoiDong();
