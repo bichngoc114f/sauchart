@@ -3365,9 +3365,9 @@ class FibPrimitive {
 
                 const x1b = x1c * hpr, y1b = y1c * vpr;
                 const x2b = x2c * hpr, y2b = y2c * vpr;
-                const xLB = Math.min(x1b, x2b);
+                const xLB = 0;
                 const xRB = bitmapSize.width;
-                const lw = isP ? 0.7 * hpr : (isSel ? 2 * hpr : hpr);
+                const lw = isP ? 0.5 * hpr : (isSel ? hpr : 0.5 * hpr);
                 ctx.globalAlpha = isP ? 0.6 : 1;
 
                 // Đường chéo nét đứt
@@ -3396,9 +3396,7 @@ class FibPrimitive {
                   ctx.fillRect(xLB, Math.min(ya, yb2), xRB - xLB, Math.abs(yb2 - ya));
                 }
 
-                // Đường ngang + nhãn
-                ctx.font = `${Math.round(10 * vpr)}px sans-serif`;
-                ctx.textBaseline = 'bottom';
+                // Đường ngang (full chiều ngang)
                 for (const lv of levs) {
                   if (lv.yb == null) continue;
                   ctx.strokeStyle = lv.mau;
@@ -3407,8 +3405,6 @@ class FibPrimitive {
                   ctx.moveTo(xLB, lv.yb);
                   ctx.lineTo(xRB, lv.yb);
                   ctx.stroke();
-                  ctx.fillStyle = lv.mau;
-                  ctx.fillText(`${lv.label} (${dinhDangGia(lv.p)})`, xLB + 4 * hpr, lv.yb - 2 * vpr);
                 }
 
                 // Chấm neo khi được chọn
@@ -3485,7 +3481,6 @@ function fibHitTest(x, y, thr) {
     const x1c = chart.timeScale().timeToCoordinate(fb.t1);
     const x2c = chart.timeScale().timeToCoordinate(fb.t2);
     if (x1c == null || x2c == null) continue;
-    if (x < Math.min(x1c, x2c) - thr * 2) continue;
     for (const lv of FIB_LEVELS) {
       const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
       const yc = nenSeries.priceToCoordinate(p);
