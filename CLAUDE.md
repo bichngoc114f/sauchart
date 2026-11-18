@@ -19,6 +19,10 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - Storage: localStorage key `'sauchart.fib.<MA>'`, value `[{id, t1, p1, t2, p2, hidden?, kieu?}]` (t = UTC seconds).
 - `fibTai()` gọi từ `napBieuDo()` để reset khi đổi mã/khung giờ.
 - `FibPrimitive` gắn vĩnh viễn vào `nenSeries` qua `fibKhoiDong()` ở cuối file.
+- Lưu bền vững (`storage.js`, nạp trước `app.js`): `ghiBoNho()` ghi localStorage rồi `sauStore.ghi()` sao chép (async, debounce) vào IndexedDB `sauchart-data`/store `kv` ({k, v, ts}) cho mọi khóa `sauchart.*` (Fib, fibShow, fibHopLuu, cài đặt chỉ báo/Co bó/EA, `lanCuoi`...). Không đụng DB `sauchart-ea` của EA.
+  - Khởi động: `navigator.storage.persist()`; đọc IndexedDB, khóa nào localStorage không có → khôi phục; khác nhau → bản có `ts` mới hơn (map ts lưu ở `sauchart._ts`); khóa chỉ có trong localStorage → gieo vào IndexedDB. Khôi phục sau khi app chạy: chỉ khóa Fib → `window.sauFibKhoiPhuc()` (= `fibTai()`), khóa khác → nạp lại trang đúng 1 lần.
+  - `sauchart.lanCuoi` = `{ma, khung}`: mã/khung lần xem cuối, mở lại vào đúng đó.
+  - Bảng Fib có "Sao lưu Fib" (tải `sauchart-fib-YYYYMMDD-HHmm.json`: `{phienBan:1, ts, fib, fibShow, fibHopLuu}` theo mã) và "Khôi phục Fib" (`fibKiemTraSaoLuu()` kiểm tra cấu trúc, `confirm`, ghi qua `ghiBoNho`). Định dạng Fib trong localStorage không đổi.
 - Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.
 - Không có vùng tô nền; chỉ có đường kẻ ngang và đường nối chéo khi chọn.
 - Đường kẻ ngang hiển thị ở độ mờ 25% (hằng số `FIB_DUONG_ALPHA = 0.25`); số hợp lưu và đường chéo khi chọn vẫn rõ 100%.

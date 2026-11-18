@@ -135,7 +135,11 @@ function docBoNho(khoa, macDinh) {
   } catch (e) { return macDinh; }
 }
 function ghiBoNho(khoa, giaTri) {
-  try { localStorage.setItem('sauchart.' + khoa, JSON.stringify(giaTri)); } catch (e) {}
+  let raw;
+  try { raw = JSON.stringify(giaTri); } catch (e) { return; }
+  try { localStorage.setItem('sauchart.' + khoa, raw); } catch (e) {}
+  // Bản sao dự phòng IndexedDB (storage.js) — không chặn giao diện
+  try { if (window.sauStore) window.sauStore.ghi('sauchart.' + khoa, raw); } catch (e) {}
 }
 
 let caiDat = Object.assign({}, MAC_DINH, docBoNho('caidat2', {}));
@@ -146,8 +150,9 @@ let blCaiDat = Object.assign(
 // đảm bảo mỗi khoá con cũng có đủ trường
 blCaiDat.bl   = Object.assign({ len: 70,  phase: 5, power: 2 }, blCaiDat.bl);
 blCaiDat.slow = Object.assign({ len: 150, phase: 0, power: 2 }, blCaiDat.slow);
-let maHienTai = docBoNho('ma', 'BTCUSDT');
-let khungHienTai = docBoNho('khung', '1d');
+const _lanCuoi = docBoNho('lanCuoi', null); // {ma, khung} lần xem cuối
+let maHienTai = (_lanCuoi && typeof _lanCuoi.ma === 'string' && _lanCuoi.ma) || docBoNho('ma', 'BTCUSDT');
+let khungHienTai = (_lanCuoi && typeof _lanCuoi.khung === 'string' && _lanCuoi.khung) || docBoNho('khung', '1d');
 if (![...DANH_SACH_MA, ...DANH_SACH_VN].some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
 if (![...KHUNG_GIO, ...KHUNG_GIO_VN].some((x) => x[0] === khungHienTai)) khungHienTai = '1h';
 
@@ -1092,6 +1097,7 @@ async function napBieuDo() {
   daHetLichSu = false;
   ghiBoNho('ma', maHienTai);
   ghiBoNho('khung', khungHienTai);
+  ghiBoNho('lanCuoi', { ma: maHienTai, khung: khungHienTai });
   document.getElementById('symbolTitle').textContent = maHienTai;
   document.title = `${maHienTai} · Sâu Chart`;
   datTrangThai('Đang tải dữ liệu...');
@@ -3691,6 +3697,102 @@ function fibVeComplet(x, y) {
   fibVaoMode(false);
 }
 
+// ---------- Sao lưu / khôi phục Fib ra file JSON ----------
+const FIB_MA_HOP_LE = /^[A-Za-z0-9._-]{1,30}$/;
+const FIB_NHOM_LUU = [['fib', 'sauchart.fib.'], ['fibShow', 'sauchart.fibShow.'], ['fibHopLuu', 'sauchart.fibHopLuu.']];
+
+function fibDatThongBao(txt) {
+  const el = document.getElementById('fibSaoLuuMsg');
+  if (el) el.textContent = txt;
+}
+
+function fibSaoLuuFile() {
+  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {} };
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      for (const [truong, tienTo] of FIB_NHOM_LUU) {
+        if (k.startsWith(tienTo)) {
+          try { out[truong][k.slice(tienTo.length)] = JSON.parse(localStorage.getItem(k)); } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {}
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const ten = `sauchart-fib-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}.json`;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  if ('download' in a) {
+    a.href = url;
+    a.download = ten;
+    a.style.display = 'none';
+    a.addEventListener('click', (e) => e.stopPropagation()); // tránh làm đóng bảng Fib
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } else {
+    window.open(url, '_blank'); // trình duyệt không hỗ trợ a.download: mở file ở tab mới
+  }
+  const nMa = Object.keys(out.fib).length;
+  fibDatThongBao(`Đã tạo ${ten} (${nMa} mã). Trên iPad: mở file qua Chia sẻ / Lưu vào Tệp nếu cần.`);
+}
+
+// Trả về { fib, fibShow, fibHopLuu } đã làm sạch, hoặc chuỗi báo lỗi
+function fibKiemTraSaoLuu(data) {
+  const laObj = (o) => o && typeof o === 'object' && !Array.isArray(o);
+  if (!laObj(data)) return 'file không đúng cấu trúc.';
+  if (data.phienBan !== 1) return 'phiên bản file không được hỗ trợ.';
+  if (!laObj(data.fib)) return 'thiếu dữ liệu Fib.';
+  const so = (v) => typeof v === 'number' && isFinite(v);
+  const kq = { fib: {}, fibShow: {}, fibHopLuu: {} };
+  for (const ma of Object.keys(data.fib)) {
+    if (!FIB_MA_HOP_LE.test(ma)) return `mã "${ma}" không hợp lệ.`;
+    const arr = data.fib[ma];
+    if (!Array.isArray(arr)) return `danh sách Fib của ${ma} không hợp lệ.`;
+    kq.fib[ma] = [];
+    for (const f of arr) {
+      if (!laObj(f) || typeof f.id !== 'string' || !f.id || !so(f.t1) || !so(f.p1) || !so(f.t2) || !so(f.p2)) {
+        return `có Fib thiếu id/t1/p1/t2/p2 hoặc không phải số (mã ${ma}).`;
+      }
+      const o = { id: f.id, t1: f.t1, p1: f.p1, t2: f.t2, p2: f.p2 };
+      if (typeof f.hidden === 'boolean') o.hidden = f.hidden;
+      if (f.kieu === 'da' || f.kieu === 'don') o.kieu = f.kieu;
+      kq.fib[ma].push(o);
+    }
+  }
+  if (!Object.keys(kq.fib).length) return 'file không chứa Fib nào.';
+  for (const truong of ['fibShow', 'fibHopLuu']) {
+    if (data[truong] === undefined) continue;
+    if (!laObj(data[truong])) return `mục ${truong} không hợp lệ.`;
+    for (const ma of Object.keys(data[truong])) {
+      if (!FIB_MA_HOP_LE.test(ma) || typeof data[truong][ma] !== 'boolean') return `mục ${truong} có giá trị không hợp lệ.`;
+      kq[truong][ma] = data[truong][ma];
+    }
+  }
+  return kq;
+}
+
+function fibKhoiPhucFile(file) {
+  const loi = (m) => { alert('Không khôi phục được: ' + m + ' Dữ liệu hiện tại không bị thay đổi.'); };
+  const rd = new FileReader();
+  rd.onerror = () => loi('không đọc được file.');
+  rd.onload = () => {
+    let data;
+    try { data = JSON.parse(rd.result); } catch (e) { return loi('file không phải JSON hợp lệ.'); }
+    const kq = fibKiemTraSaoLuu(data);
+    if (typeof kq === 'string') return loi(kq);
+    if (!confirm('Khôi phục sẽ thay các Fib hiện tại của mã có trong file. Tiếp tục?')) return;
+    for (const ma of Object.keys(kq.fib)) ghiBoNho('fib.' + ma, kq.fib[ma]);
+    for (const ma of Object.keys(kq.fibShow)) ghiBoNho('fibShow.' + ma, kq.fibShow[ma]);
+    for (const ma of Object.keys(kq.fibHopLuu)) ghiBoNho('fibHopLuu.' + ma, kq.fibHopLuu[ma]);
+    fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
+    fibDatThongBao(`Đã khôi phục Fib cho ${Object.keys(kq.fib).length} mã.`);
+  };
+  rd.readAsText(file);
+}
+
 // Cập nhật dấu hiệu lọc trên nút Fib và dòng chú thích "chưa có vùng hợp lưu" trong bảng
 function fibCapNhatLocHL() {
   const on = fibHopLuuGetOnly();
@@ -3748,7 +3850,24 @@ function fibVePanel() {
     html += `</div>`;
   }
 
+  html += `<div style="padding:8px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border)">` +
+    `<button id="fibBtnSaoLuu" class="cobo-btn" style="font-size:11px">Sao lưu Fib</button>` +
+    `<button id="fibBtnKhoiPhuc" class="cobo-btn" style="font-size:11px">Khôi phục Fib</button>` +
+    `<input type="file" id="fibFileIn" accept=".json,application/json" style="display:none">` +
+    `<div id="fibSaoLuuMsg" style="flex-basis:100%;font-size:11px;color:var(--muted)"></div>` +
+    `</div>`;
+
   body.innerHTML = html;
+
+  const btnSaoLuu = document.getElementById('fibBtnSaoLuu');
+  if (btnSaoLuu) btnSaoLuu.onclick = fibSaoLuuFile;
+  const fileIn = document.getElementById('fibFileIn');
+  const btnKhoiPhuc = document.getElementById('fibBtnKhoiPhuc');
+  if (btnKhoiPhuc && fileIn) btnKhoiPhuc.onclick = () => { fileIn.value = ''; fileIn.click(); };
+  if (fileIn) fileIn.onchange = () => {
+    const f = fileIn.files && fileIn.files[0];
+    if (f) fibKhoiPhucFile(f);
+  };
 
   const veBtn = document.getElementById('fibBtnVeTrong');
   if (veBtn) veBtn.onclick = () => {
@@ -4000,3 +4119,7 @@ function fibKhoiDong() {
 }
 
 fibKhoiDong();
+
+// storage.js gọi khi vừa khôi phục dữ liệu Fib từ IndexedDB sau khi app đã chạy
+window.sauFibKhoiPhuc = function () { fibTai(); fibCapNhatLocHL(); };
+window.sauAppChay = true;
