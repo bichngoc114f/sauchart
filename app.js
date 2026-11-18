@@ -3428,14 +3428,6 @@ class FibPrimitive {
                   }
                 }
 
-                // Tô nền giữa các mức
-                for (let i = 0; i < levs.length - 1; i++) {
-                  if (levs[i].yb == null || levs[i + 1].yb == null) continue;
-                  const ya = levs[i].yb, yb2 = levs[i + 1].yb;
-                  ctx.fillStyle = levs[i].mau + bandAlpha;
-                  ctx.fillRect(xLB, Math.min(ya, yb2), xRB - xLB, Math.abs(yb2 - ya));
-                }
-
                 // Đường ngang full chiều ngang (chỉ phụ thuộc vào giá)
                 for (const lv of levs) {
                   if (lv.yb == null) continue;
