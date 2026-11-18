@@ -3419,8 +3419,6 @@ class FibPrimitive {
                   const mau = isMono ? '#e0e0e0' : lv.mau;
                   return { p, yb: yc != null ? yc * vpr : null, mau };
                 });
-                const bandAlpha = isMono ? '08' : '0f';
-
                 // Thu thập cho hợp lưu (không phải preview, đang hiển thị)
                 if (!isP && showAll && !fb.hidden) {
                   for (const _lv of levs) {
