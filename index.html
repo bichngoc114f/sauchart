@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" href="icon-180.png" />
   <link rel="manifest" href="manifest.json" />
 
-  <link rel="stylesheet" href="style.css?v=202611171400" />
+  <link rel="stylesheet" href="style.css?v=202611181000" />
   <!-- Thư viện vẽ biểu đồ mã nguồn mở của chính TradingView -->
   <script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -32,8 +32,7 @@
     <button class="icon-btn" id="btnCaiDat">⚙︎ Chỉ báo</button>
     <button class="icon-btn" id="btnEA">⚡ EA</button>
     <button class="icon-btn" id="btnCoBo">▦ Co bó</button>
-    <button class="icon-btn" id="btnVeFib">📐 Vẽ FIB</button>
-    <button class="icon-btn" id="btnXoaFib" style="display:none">✕ Xóa Fib</button>
+    <button class="icon-btn" id="btnFib">📐 Fib</button>
     <div class="status" id="status"><span class="dot">●</span><span class="status-text">Đang kết nối...</span></div>
   </header>
 
@@ -167,6 +166,17 @@
     </div>
   </div>
 
+  <!-- Bảng Fibonacci -->
+  <div class="panel" id="panelFib" hidden>
+    <div class="panel-box">
+      <div class="panel-head">
+        <span>📐 Fib</span>
+        <button class="icon-btn" id="btnDongFib">✕</button>
+      </div>
+      <div id="fibPanelBody"></div>
+    </div>
+  </div>
+
   <!-- Bảng bật/tắt chỉ báo -->
   <div class="panel" id="panelCaiDat" hidden>
     <div class="panel-box">
@@ -178,13 +188,13 @@
     </div>
   </div>
 
-  <script src="ea-l5-engine.js?v=202611171400"></script>
-  <script src="ea-l5-data.js?v=202611171400"></script>
-  <script src="ea-f3-engine.js?v=202611171400"></script>
-  <script src="ea-f3-data.js?v=202611171400"></script>
-  <script src="ea-s1-engine.js?v=202611171400"></script>
-  <script src="ea-s1-data.js?v=202611171400"></script>
-  <script src="indicators.js?v=202611171400"></script>
-  <script src="app.js?v=202611171500"></script>
+  <script src="ea-l5-engine.js?v=202611181000"></script>
+  <script src="ea-l5-data.js?v=202611181000"></script>
+  <script src="ea-f3-engine.js?v=202611181000"></script>
+  <script src="ea-f3-data.js?v=202611181000"></script>
+  <script src="ea-s1-engine.js?v=202611181000"></script>
+  <script src="ea-s1-data.js?v=202611181000"></script>
+  <script src="indicators.js?v=202611181000"></script>
+  <script src="app.js?v=202611181000"></script>
 </body>
 </html>

@@ -3319,16 +3319,22 @@ _applyPhongToBtn();
 // ==================== FIBONACCI RETRACEMENT ====================
 
 const FIB_LEVELS = [
-  { r: 0,     label: '0',     mau: '#9e9e9e' },
-  { r: 0.236, label: '0.236', mau: '#ef5350' },
-  { r: 0.382, label: '0.382', mau: '#ff9800' },
-  { r: 0.5,   label: '0.5',   mau: '#4caf50' },
-  { r: 0.618, label: '0.618', mau: '#26a69a' },
-  { r: 0.786, label: '0.786', mau: '#29b6f6' },
-  { r: 1,     label: '1',     mau: '#9e9e9e' },
-  { r: 1.618, label: '1.618', mau: '#ab47bc' },
-  { r: 2.618, label: '2.618', mau: '#ec407a' },
+  { r: 0,     mau: '#9e9e9e' },
+  { r: 0.236, mau: '#ef5350' },
+  { r: 0.382, mau: '#ff9800' },
+  { r: 0.5,   mau: '#4caf50' },
+  { r: 0.618, mau: '#26a69a' },
+  { r: 0.786, mau: '#29b6f6' },
+  { r: 1,     mau: '#9e9e9e' },
+  { r: 1.618, mau: '#ab47bc' },
+  { r: 2.618, mau: '#ec407a' },
 ];
+
+const FIB_MONO_MAUS = {
+  0: '#e0e0e0', 0.236: '#9e9e9e', 0.382: '#9e9e9e',
+  0.5: '#e0e0e0', 0.618: '#9e9e9e', 0.786: '#9e9e9e',
+  1: '#e0e0e0', 1.618: '#616161', 2.618: '#616161',
+};
 
 class FibPrimitive {
   constructor() { this._series = null; this._chart = null; this._requestUpdate = null; }
@@ -3353,10 +3359,15 @@ class FibPrimitive {
               const all = [...ds];
               if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
 
+              const showAll = fibGetShow();
               for (const fb of all) {
                 const isP = fb.id === '__prev__';
                 const isSel = !isP && fb.id === fibSelected;
                 if (Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
+                if (!isP && (!showAll || fb.hidden)) continue;
+
+                const kieu = isP ? 'da' : (fb.kieu || 'da');
+                const isMono = kieu === 'don';
 
                 // Tọa độ neo — chỉ dùng cho đường chéo & chấm neo; level lines không cần
                 const x1c = ts.timeToCoordinate(fb.t1);
@@ -3377,7 +3388,7 @@ class FibPrimitive {
                 if (x1b != null && y1b != null && x2b != null && y2b != null) {
                   ctx.save();
                   ctx.setLineDash([4 * hpr, 3 * hpr]);
-                  ctx.strokeStyle = '#777';
+                  ctx.strokeStyle = isMono ? '#e0e0e0' : '#777';
                   ctx.lineWidth = lw;
                   ctx.beginPath();
                   ctx.moveTo(x1b, y1b);
@@ -3386,18 +3397,20 @@ class FibPrimitive {
                   ctx.restore();
                 }
 
-                // Tính tọa độ y của từng mức (chỉ phụ thuộc vào giá)
+                // Tính tọa độ y và màu của từng mức (chỉ phụ thuộc vào giá)
                 const levs = FIB_LEVELS.map(lv => {
                   const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
                   const yc = self._series.priceToCoordinate(p);
-                  return { ...lv, p, yb: yc != null ? yc * vpr : null };
+                  const mau = isMono ? (FIB_MONO_MAUS[lv.r] || '#9e9e9e') : lv.mau;
+                  return { p, yb: yc != null ? yc * vpr : null, mau };
                 });
+                const bandAlpha = isMono ? '0a' : '0f';
 
                 // Tô nền giữa các mức
                 for (let i = 0; i < levs.length - 1; i++) {
                   if (levs[i].yb == null || levs[i + 1].yb == null) continue;
                   const ya = levs[i].yb, yb2 = levs[i + 1].yb;
-                  ctx.fillStyle = levs[i].mau + '0f';
+                  ctx.fillStyle = levs[i].mau + bandAlpha;
                   ctx.fillRect(xLB, Math.min(ya, yb2), xRB - xLB, Math.abs(yb2 - ya));
                 }
 
@@ -3414,13 +3427,14 @@ class FibPrimitive {
 
                 // Chấm neo khi được chọn (chỉ khi có tọa độ)
                 if (isSel) {
+                  const dotFill = isMono ? '#e0e0e0' : '#fff';
                   for (const pt of [{ xb: x1b, yb: y1b }, { xb: x2b, yb: y2b }]) {
                     if (pt.xb == null || pt.yb == null) continue;
                     ctx.beginPath();
                     ctx.arc(pt.xb, pt.yb, 5 * hpr, 0, Math.PI * 2);
-                    ctx.fillStyle = '#fff';
+                    ctx.fillStyle = dotFill;
                     ctx.fill();
-                    ctx.strokeStyle = '#aaa';
+                    ctx.strokeStyle = '#888';
                     ctx.lineWidth = hpr;
                     ctx.stroke();
                   }
@@ -3480,13 +3494,11 @@ function fibXYToAnchor(x, y) {
 }
 
 function fibHitTest(x, y, thr) {
+  if (!fibGetShow()) return null;
   const ds = fibLayDS();
   for (let i = ds.length - 1; i >= 0; i--) {
     const fb = ds[i];
-    if (Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
-    const x1c = chart.timeScale().timeToCoordinate(fb.t1);
-    const x2c = chart.timeScale().timeToCoordinate(fb.t2);
-    if (x1c == null || x2c == null) continue;
+    if (fb.hidden || Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
     for (const lv of FIB_LEVELS) {
       const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
       const yc = nenSeries.priceToCoordinate(p);
@@ -3511,11 +3523,10 @@ function fibAnchorHitTest(x, y, thr) {
   return null;
 }
 
-function fibCapNhatNut() {
-  const ds = fibLayDS();
-  const btn = document.getElementById('btnXoaFib');
-  if (btn) btn.style.display = ds.length ? '' : 'none';
-}
+function fibGetShow() { return docBoNho('fibShow.' + maHienTai, true); }
+function fibSetShow(v) { ghiBoNho('fibShow.' + maHienTai, v); }
+
+function fibCapNhatNut() { fibVePanel(); }
 
 function fibCapNhatXoaBtn() {
   const btn = document.getElementById('fibXoaChon');
@@ -3526,9 +3537,9 @@ function fibVaoMode(bat) {
   fibBatMode = bat;
   fibVePhase = 0;
   fibDangVe = null;
-  const btnVe = document.getElementById('btnVeFib');
+  const btnFibEl = document.getElementById('btnFib');
   const hint = document.getElementById('fibHint');
-  if (btnVe) btnVe.classList.toggle('active', bat);
+  if (btnFibEl) btnFibEl.classList.toggle('active', bat);
   if (hint) hint.style.display = bat ? '' : 'none';
   if (bat) {
     chart.applyOptions({ handleScroll: false, handleScale: false });
@@ -3542,6 +3553,7 @@ function fibVaoMode(bat) {
     if (c) c.style.cursor = '';
     if (fibPrim) fibPrim.update();
   }
+  fibVePanel();
 }
 
 function fibVeComplet(x, y) {
@@ -3554,7 +3566,110 @@ function fibVeComplet(x, y) {
   }
   fibDangVe = null;
   fibVaoMode(false);
-  fibCapNhatNut();
+}
+
+function fibVePanel() {
+  const panelFib = document.getElementById('panelFib');
+  if (!panelFib || panelFib.hidden) return;
+  const body = document.getElementById('fibPanelBody');
+  if (!body) return;
+
+  const ds = fibLayDS();
+  const showAll = fibGetShow();
+
+  let html = `<div style="padding:8px 14px 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">` +
+    `<button id="fibBtnVeTrong" class="cobo-btn${fibBatMode ? ' active' : ''}">Vẽ FIB</button>` +
+    `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
+    `<input type="checkbox" id="fibShowChk"${showAll ? ' checked' : ''}> Hiển thị Fib</label>` +
+    `</div>`;
+
+  if (!ds.length) {
+    html += `<div style="padding:2px 14px 10px;font-size:11px;color:var(--muted)">Chưa có Fib nào. Bấm Vẽ FIB để thêm.</div>`;
+  } else {
+    html += `<div class="fib-ds-list">`;
+    for (const fb of ds) {
+      const kieu = fb.kieu || 'da';
+      const hidden = fb.hidden || false;
+      const t1ms = (fb.t1 - LECH_GIO) * 1000;
+      const t2ms = (fb.t2 - LECH_GIO) * 1000;
+      const huong = fb.p1 > fb.p2 ? '↘ đỉnh→đáy' : '↗ đáy→đỉnh';
+      const isSel = fb.id === fibSelected;
+      html += `<div class="fib-ds-row${isSel ? ' fib-ds-sel' : ''}">` +
+        `<input type="checkbox" class="fib-cb" data-id="${fb.id}"${hidden ? '' : ' checked'} title="Hiện/ẩn">` +
+        `<div class="fib-ds-info" data-id="${fb.id}">` +
+        `<span class="fib-huong">${huong}</span> ` +
+        `Đ1: <b>${eaFmtVN(t1ms)}</b> @ <b>${dinhDangGia(fb.p1)}</b>` +
+        ` → Đ2: <b>${eaFmtVN(t2ms)}</b> @ <b>${dinhDangGia(fb.p2)}</b>` +
+        `</div>` +
+        `<div class="fib-kieu-row">` +
+        `<button class="fib-kieu-btn${kieu === 'da' ? ' active' : ''}" data-id="${fb.id}" data-kieu="da">Đa sắc</button>` +
+        `<button class="fib-kieu-btn${kieu === 'don' ? ' active' : ''}" data-id="${fb.id}" data-kieu="don">Đơn sắc</button>` +
+        `</div>` +
+        `</div>`;
+    }
+    html += `</div>`;
+  }
+
+  body.innerHTML = html;
+
+  const veBtn = document.getElementById('fibBtnVeTrong');
+  if (veBtn) veBtn.onclick = () => {
+    if (fibBatMode) { fibVaoMode(false); return; }
+    if (!fibGetShow()) { fibSetShow(true); if (fibPrim) fibPrim.update(); }
+    document.getElementById('panelFib').hidden = true;
+    fibVaoMode(true);
+  };
+
+  const showChk = document.getElementById('fibShowChk');
+  if (showChk) showChk.onchange = () => {
+    fibSetShow(showChk.checked);
+    if (fibPrim) fibPrim.update();
+  };
+
+  body.querySelectorAll('.fib-cb').forEach(cb => {
+    cb.onchange = () => {
+      const ds2 = fibLayDS();
+      const fb = ds2.find(f => f.id === cb.dataset.id);
+      if (fb) { fb.hidden = !cb.checked; fibLuuDS(ds2); if (fibPrim) fibPrim.update(); }
+    };
+  });
+
+  body.querySelectorAll('.fib-ds-info').forEach(el => {
+    el.onclick = () => {
+      fibSelected = el.dataset.id;
+      fibCapNhatXoaBtn();
+      if (fibPrim) fibPrim.update();
+      // highlight row
+      body.querySelectorAll('.fib-ds-row').forEach(r => r.classList.remove('fib-ds-sel'));
+      el.closest('.fib-ds-row').classList.add('fib-ds-sel');
+      // scroll biểu đồ tới điểm 1
+      try {
+        const fb = fibLayDS().find(f => f.id === el.dataset.id);
+        if (fb) {
+          const idx = duLieuNen.findIndex(n => n.time === fb.t1);
+          if (idx >= 0) {
+            const range = chart.timeScale().getVisibleLogicalRange();
+            const span = range ? range.to - range.from : 150;
+            chart.timeScale().setVisibleLogicalRange({ from: idx - span * 0.3, to: idx + span * 0.7 });
+          }
+        }
+      } catch (ex) {}
+    };
+  });
+
+  body.querySelectorAll('.fib-kieu-btn').forEach(btn => {
+    btn.onclick = () => {
+      const ds2 = fibLayDS();
+      const fb = ds2.find(f => f.id === btn.dataset.id);
+      if (!fb) return;
+      fb.kieu = btn.dataset.kieu;
+      fibLuuDS(ds2);
+      body.querySelectorAll(`.fib-kieu-btn[data-id="${btn.dataset.id}"]`).forEach(b => {
+        b.classList.toggle('active', b.dataset.kieu === fb.kieu);
+      });
+      if (fibPrim) fibPrim.update();
+    };
+  });
 }
 
 function fibXoaChon() {
@@ -3563,7 +3678,7 @@ function fibXoaChon() {
   fibLuuDS(ds);
   fibSelected = null;
   fibCapNhatXoaBtn();
-  fibCapNhatNut();
+  fibVePanel();
   if (fibPrim) fibPrim.update();
 }
 
@@ -3576,7 +3691,7 @@ function fibTai() {
   fibDragState = null;
   fibPointerActive = false;
   fibCapNhatXoaBtn();
-  fibCapNhatNut();
+  fibVePanel();
   if (fibPrim) fibPrim.update();
 }
 
@@ -3705,24 +3820,27 @@ function fibKhoiDong() {
   chartEl.addEventListener('pointercancel', fibOnPointerCancel);
   document.addEventListener('keydown', fibOnKeyDown);
 
-  const btnVe = document.getElementById('btnVeFib');
-  if (btnVe) btnVe.onclick = () => fibVaoMode(!fibBatMode);
+  // Nút mở/đóng bảng Fib
+  const btnFibEl = document.getElementById('btnFib');
+  const panelFib = document.getElementById('panelFib');
+  if (btnFibEl && panelFib) {
+    btnFibEl.onclick = (e) => {
+      e.stopPropagation();
+      if (!panelFib.hidden) { panelFib.hidden = true; return; }
+      fibVePanel();
+      panelFib.hidden = false;
+    };
+    document.addEventListener('click', (e) => {
+      if (!panelFib || panelFib.hidden) return;
+      if (!panelFib.contains(e.target) && e.target !== btnFibEl) panelFib.hidden = true;
+    });
+  }
 
-  const btnXoaTat = document.getElementById('btnXoaFib');
-  if (btnXoaTat) btnXoaTat.onclick = () => {
-    if (confirm('Xóa tất cả Fib trên mã ' + maHienTai + '?')) {
-      fibLuuDS([]);
-      fibSelected = null;
-      fibCapNhatXoaBtn();
-      fibCapNhatNut();
-      if (fibPrim) fibPrim.update();
-    }
-  };
+  const btnDongFib = document.getElementById('btnDongFib');
+  if (btnDongFib) btnDongFib.onclick = () => { document.getElementById('panelFib').hidden = true; };
 
   const btnXoaChon = document.getElementById('fibXoaChon');
   if (btnXoaChon) btnXoaChon.onclick = fibXoaChon;
-
-  fibCapNhatNut();
 }
 
 fibKhoiDong();

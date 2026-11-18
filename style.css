@@ -571,6 +571,27 @@ button { font-family: inherit; }
 
 /* ===== Fibonacci ===== */
 .icon-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fib-ds-list { max-height: 50vh; overflow-y: auto; padding-bottom: 6px; }
+.fib-ds-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px 14px; border-bottom: 1px solid var(--border);
+}
+.fib-ds-row:last-child { border-bottom: none; }
+.fib-ds-row.fib-ds-sel { background: rgba(255,255,255,0.05); }
+.fib-ds-row > :first-child { align-self: flex-start; }
+.fib-ds-info {
+  font-size: 11px; color: var(--muted); cursor: pointer; line-height: 1.6;
+}
+.fib-ds-info:hover { color: var(--text); }
+.fib-ds-info b { color: var(--text); font-weight: 600; }
+.fib-huong { font-size: 10px; border-radius: 3px; padding: 1px 4px;
+  background: rgba(255,255,255,0.08); margin-right: 4px; }
+.fib-kieu-row { display: flex; gap: 6px; }
+.fib-kieu-btn {
+  font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+}
+.fib-kieu-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .fib-hint {
   position: absolute;
   bottom: 32px;
