@@ -14,9 +14,15 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - KHÔNG sửa `ea-*.js`, `*-thong-bao.cjs`. Không thấy file thì DỪNG và báo.
 
 ## Fibonacci
-- Nút "Vẽ FIB" trong toolbar (id `btnVeFib`), nút "✕ Xóa Fib" (id `btnXoaFib`, ẩn khi chưa có Fib).
-- State: `fibPrim`, `fibBatMode`, `fibVePhase`, `fibDangVe`, `fibSelected`, `fibDragState`, `_fibDsCache`.
-- Storage: localStorage key `'sauchart.fib.<MA>'`, value `[{id, t1, p1, t2, p2}]` (t = UTC seconds).
+- Nút "📐 Fib" (id `btnFib`) mở bảng quản lý; nút "Xóa" (id `fibXoaChon`, ẩn khi chưa chọn).
+- State: `fibPrim`, `fibBatMode`, `fibVePhase`, `fibDangVe`, `fibSelected`, `fibDiagIds`, `fibDragState`, `_fibDsCache`, `_fibLastHitPrice`.
+- Storage: localStorage key `'sauchart.fib.<MA>'`, value `[{id, t1, p1, t2, p2, hidden?, kieu?}]` (t = UTC seconds).
 - `fibTai()` gọi từ `napBieuDo()` để reset khi đổi mã/khung giờ.
 - `FibPrimitive` gắn vĩnh viễn vào `nenSeries` qua `fibKhoiDong()` ở cuối file.
 - Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.
+- Không có vùng tô nền; chỉ có đường kẻ ngang và đường nối chéo khi chọn.
+- Đường nối chéo: CHỈ hiện khi bấm chọn đường mức ngang (không hiện mặc định).
+  - `fibDiagIds` = Set fbId cần vẽ đường nối; null = không vẽ gì.
+  - Bấm đường có nhóm hợp lưu (≥2 Fib trong 0.5%) → `fibTinhNhomHopLuu()` trả về Set tất cả Fib trong nhóm.
+  - Bấm qua bảng → `fibDiagIds = new Set([fibSelected])` (chỉ 1 Fib).
+  - Bỏ chọn: click vùng trống, Esc, đổi mã/khung, xóa Fib.

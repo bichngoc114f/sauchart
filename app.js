@@ -977,13 +977,18 @@ chart.subscribeClick((param) => {
     const thr = isMob ? 14 : 8;
     const hit = fibHitTest(param.point.x, param.point.y, thr);
     if (hit !== null) {
-      fibSelected = fibSelected === hit ? null : hit;
+      if (fibSelected === hit) {
+        fibSelected = null; fibDiagIds = null;
+      } else {
+        fibSelected = hit;
+        fibDiagIds = fibTinhNhomHopLuu(hit, _fibLastHitPrice);
+      }
       fibCapNhatXoaBtn();
       eaVaoDongBang();
       if (fibPrim) fibPrim.update();
       return;
     }
-    if (fibSelected) { fibSelected = null; fibCapNhatXoaBtn(); if (fibPrim) fibPrim.update(); }
+    if (fibSelected) { fibSelected = null; fibDiagIds = null; fibCapNhatXoaBtn(); if (fibPrim) fibPrim.update(); }
   }
   if (!caiDatEA.hist || !eaCoHoTro() || !caiDatEA.on) return;
   if (!param.point) { eaVaoDongBang(); return; }
@@ -2474,8 +2479,10 @@ let fibDangVe = null;    // { t1, p1, t2, p2 } preview đang vẽ
 let fibP1_cx = 0, fibP1_cy = 0;
 let fibPointerActive = false;
 let fibSelected = null;
+let fibDiagIds = null;   // Set fbId cần vẽ đường nối chéo; null = không vẽ
 let fibDragState = null; // { which: 1|2 }
 let _fibDsCache = null;  // { ma, ds }
+let _fibLastHitPrice = null; // giá mức vừa bấm (để tính nhóm hợp lưu)
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
@@ -3399,8 +3406,9 @@ class FibPrimitive {
                 const lw = isP ? 0.5 * hpr : (isSel ? hpr : 0.5 * hpr);
                 ctx.globalAlpha = isP ? 0.6 : 1;
 
-                // Đường chéo nét đứt (chỉ khi cả 2 neo có tọa độ)
-                if (x1b != null && y1b != null && x2b != null && y2b != null) {
+                // Đường chéo nét đứt: chỉ bản xem trước hoặc Fib trong nhóm đang chọn
+                const showDiag = isP || (fibDiagIds != null && fibDiagIds.has(fb.id));
+                if (showDiag && x1b != null && y1b != null && x2b != null && y2b != null) {
                   ctx.save();
                   ctx.setLineDash([4 * hpr, 3 * hpr]);
                   ctx.strokeStyle = isMono ? '#e0e0e0' : '#777';
@@ -3555,6 +3563,7 @@ function fibXYToAnchor(x, y) {
 }
 
 function fibHitTest(x, y, thr) {
+  _fibLastHitPrice = null;
   if (!fibGetShow()) return null;
   const ds = fibLayDS();
   for (let i = ds.length - 1; i >= 0; i--) {
@@ -3564,7 +3573,10 @@ function fibHitTest(x, y, thr) {
       const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
       const yc = nenSeries.priceToCoordinate(p);
       if (yc == null) continue;
-      if (Math.abs(y - yc) <= thr) return fb.id;
+      if (Math.abs(y - yc) <= thr) {
+        _fibLastHitPrice = p;
+        return fb.id;
+      }
     }
   }
   return null;
@@ -3582,6 +3594,43 @@ function fibAnchorHitTest(x, y, thr) {
   if (x1c != null && y1c != null && Math.abs(x - x1c) <= thr && Math.abs(y - y1c) <= thr) return 1;
   if (x2c != null && y2c != null && Math.abs(x - x2c) <= thr && Math.abs(y - y2c) <= thr) return 2;
   return null;
+}
+
+// Tính nhóm hợp lưu cho đường được bấm chọn.
+// Trả về Set fbId của tất cả các Fib có đường mức trong cùng nhóm 0.5% với clickedPrice.
+// Nếu không có nhóm (< 2 Fib) → trả về Set chỉ chứa clickedFbId.
+function fibTinhNhomHopLuu(clickedFbId, clickedPrice) {
+  const result = new Set([clickedFbId]);
+  if (clickedPrice == null) return result;
+  const ds = fibLayDS().filter(f => !f.hidden && Math.abs(f.p1 - f.p2) > 1e-9);
+  const allLevs = [];
+  for (const fb of ds) {
+    for (const lv of FIB_LEVELS) {
+      allLevs.push({ p: fb.p2 + (fb.p1 - fb.p2) * lv.r, fbId: fb.id });
+    }
+  }
+  allLevs.sort((a, b) => a.p - b.p);
+  const groups = [];
+  for (const pt of allLevs) {
+    let placed = false;
+    for (const g of groups) {
+      if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
+        g.push(pt);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) groups.push([pt]);
+  }
+  for (const g of groups) {
+    for (const pt of g) {
+      if (pt.fbId === clickedFbId && Math.abs(pt.p - clickedPrice) < 1e-6) {
+        const ids = new Set(g.map(x => x.fbId));
+        return ids.size >= 2 ? ids : result;
+      }
+    }
+  }
+  return result;
 }
 
 function fibGetShow() { return docBoNho('fibShow.' + maHienTai, true); }
@@ -3604,7 +3653,7 @@ function fibVaoMode(bat) {
   if (hint) hint.style.display = bat ? '' : 'none';
   if (bat) {
     chart.applyOptions({ handleScroll: false, handleScale: false });
-    fibSelected = null;
+    fibSelected = null; fibDiagIds = null;
     fibCapNhatXoaBtn();
     const c = document.querySelector('#chart canvas');
     if (c) c.style.cursor = 'crosshair';
@@ -3698,6 +3747,7 @@ function fibVePanel() {
   body.querySelectorAll('.fib-ds-info').forEach(el => {
     el.onclick = () => {
       fibSelected = el.dataset.id;
+      fibDiagIds = new Set([fibSelected]);
       fibCapNhatXoaBtn();
       if (fibPrim) fibPrim.update();
       // highlight row
@@ -3737,7 +3787,7 @@ function fibXoaChon() {
   if (!fibSelected) return;
   const ds = fibLayDS().filter(f => f.id !== fibSelected);
   fibLuuDS(ds);
-  fibSelected = null;
+  fibSelected = null; fibDiagIds = null;
   fibCapNhatXoaBtn();
   fibVePanel();
   if (fibPrim) fibPrim.update();
@@ -3746,7 +3796,7 @@ function fibXoaChon() {
 function fibTai() {
   _fibDsCache = null;
   if (fibBatMode) fibVaoMode(false);
-  fibSelected = null;
+  fibSelected = null; fibDiagIds = null;
   fibDangVe = null;
   fibVePhase = 0;
   fibDragState = null;
@@ -3862,6 +3912,11 @@ function fibOnKeyDown(e) {
   if (fibBatMode && e.key === 'Escape') {
     fibDangVe = null;
     fibVaoMode(false);
+  }
+  if (!fibBatMode && fibSelected && e.key === 'Escape') {
+    fibSelected = null; fibDiagIds = null;
+    fibCapNhatXoaBtn();
+    if (fibPrim) fibPrim.update();
   }
   if (!fibBatMode && fibSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
     const tag = document.activeElement.tagName;
