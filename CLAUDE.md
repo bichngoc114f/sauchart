@@ -21,7 +21,7 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - `FibPrimitive` gắn vĩnh viễn vào `nenSeries` qua `fibKhoiDong()` ở cuối file.
 - Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.
 - Không có vùng tô nền; chỉ có đường kẻ ngang và đường nối chéo khi chọn.
-- Đường kẻ ngang hiển thị ở độ mờ 50% (hằng số `FIB_DUONG_ALPHA = 0.5`); số hợp lưu và đường chéo khi chọn vẫn rõ 100%.
+- Đường kẻ ngang hiển thị ở độ mờ 25% (hằng số `FIB_DUONG_ALPHA = 0.25`); số hợp lưu và đường chéo khi chọn vẫn rõ 100%.
 - Đường nối chéo: CHỈ hiện khi bấm chọn đường mức ngang (không hiện mặc định).
   - `fibDiagIds` = Set fbId cần vẽ đường nối; null = không vẽ gì.
   - Bấm đường có nhóm hợp lưu (≥2 Fib trong 0.5%) → `fibTinhNhomHopLuu()` trả về Set tất cả Fib trong nhóm.

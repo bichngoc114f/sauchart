@@ -3338,7 +3338,7 @@ const FIB_LEVELS = [
 ];
 
 const FIB_HOP_LUU_PCT = 0.5;
-const FIB_DUONG_ALPHA = 0.5; // độ trong suốt của đường mức ngang
+const FIB_DUONG_ALPHA = 0.25; // độ trong suốt của đường mức ngang
 
 // Đổi thời gian nến (chart time, giây UTC+7) → tọa độ x CSS pixel, không dùng timeToCoordinate
 // vì timeToCoordinate trả null khi t không khớp chính xác một nến (ví dụ đổi khung giờ).
@@ -3405,7 +3405,7 @@ class FibPrimitive {
                 const y2b = y2c != null ? y2c * vpr : null;
 
                 const lw = isP ? 0.5 * hpr : (isSel ? hpr : 0.5 * hpr);
-                ctx.globalAlpha = isP ? 0.35 : 1;
+                ctx.globalAlpha = isP ? 0.2 : 1;
 
                 // Đường chéo nét đứt: chỉ bản xem trước hoặc Fib trong nhóm đang chọn
                 const showDiag = isP || (fibDiagIds != null && fibDiagIds.has(fb.id));
@@ -3446,7 +3446,7 @@ class FibPrimitive {
                   ctx.lineTo(xRB, lv.yb);
                   ctx.stroke();
                 }
-                ctx.globalAlpha = isP ? 0.35 : 1;
+                ctx.globalAlpha = isP ? 0.2 : 1;
 
                 // Chấm neo khi được chọn (chỉ khi có tọa độ)
                 if (isSel) {
