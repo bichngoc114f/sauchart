@@ -3352,6 +3352,8 @@ class FibPrimitive {
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
               const ts = self._chart.timeScale();
               ctx.save();
+              const xLB = 0;
+              const xRB = bitmapSize.width;
               const all = [...ds];
               const allLevPts = [];
               if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
@@ -3376,8 +3378,6 @@ class FibPrimitive {
                 const x2b = x2c != null ? x2c * hpr : null;
                 const y2b = y2c != null ? y2c * vpr : null;
 
-                const xLB = 0;
-                const xRB = bitmapSize.width;
                 const lw = isP ? 0.5 * hpr : (isSel ? hpr : 0.5 * hpr);
                 ctx.globalAlpha = isP ? 0.6 : 1;
 
@@ -3406,7 +3406,7 @@ class FibPrimitive {
                 // Thu thập cho hợp lưu (không phải preview, đang hiển thị)
                 if (!isP && showAll && !fb.hidden) {
                   for (const _lv of levs) {
-                    if (_lv.yb != null) allLevPts.push({ p: _lv.p, yb: _lv.yb, mau: _lv.mau, fbId: fb.id });
+                    if (_lv.yb != null) allLevPts.push({ p: _lv.p, yb: _lv.yb, mau: _lv.mau, fbId: fb.id, isM: isMono });
                   }
                 }
 
@@ -3445,32 +3445,52 @@ class FibPrimitive {
                 }
               }
               // Số hợp lưu: nhóm các mức giá trong vòng FIB_HOP_LUU_PCT% của nhau
-              if (allLevPts.length >= 2 && showAll) {
-                allLevPts.sort((a, b) => a.p - b.p);
-                const groups = [];
-                for (const pt of allLevPts) {
-                  let placed = false;
+              try {
+                if (allLevPts.length >= 2 && showAll) {
+                  allLevPts.sort((a, b) => a.p - b.p);
+                  const groups = [];
+                  for (const pt of allLevPts) {
+                    let placed = false;
+                    for (const g of groups) {
+                      if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
+                        g.push(pt);
+                        placed = true;
+                        break;
+                      }
+                    }
+                    if (!placed) groups.push([pt]);
+                  }
+                  ctx.save();
+                  ctx.globalAlpha = 1;
+                  ctx.font = `bold ${Math.round(11 * vpr)}px sans-serif`;
+                  ctx.textAlign = 'right';
+                  ctx.textBaseline = 'bottom';
+                  ctx.lineJoin = 'round';
                   for (const g of groups) {
-                    if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
-                      g.push(pt);
-                      placed = true;
-                      break;
+                    const distinctIds = new Set(g.map(pt => pt.fbId));
+                    const cnt = distinctIds.size;
+                    if (cnt < 2) continue;
+                    // Mỗi đường trong nhóm vẽ riêng, bỏ qua nếu quá gần đường trên
+                    const ybList = g.map(pt => ({ yb: pt.yb, mau: pt.isM ? '#ffffff' : pt.mau }));
+                    ybList.sort((a, b) => a.yb - b.yb);
+                    let lastDrawnYb = -Infinity;
+                    for (const item of ybList) {
+                      if (item.yb - lastDrawnYb < 10 * vpr) continue;
+                      lastDrawnYb = item.yb;
+                      const x = xRB - 4 * hpr;
+                      const y = item.yb - 3 * vpr;
+                      const label = String(cnt);
+                      ctx.strokeStyle = '#1d1f28';
+                      ctx.lineWidth = 3 * hpr;
+                      ctx.strokeText(label, x, y);
+                      ctx.fillStyle = item.mau;
+                      ctx.fillText(label, x, y);
                     }
                   }
-                  if (!placed) groups.push([pt]);
+                  ctx.restore();
                 }
-                ctx.save();
-                ctx.font = `bold ${Math.round(10 * vpr)}px sans-serif`;
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'bottom';
-                for (const g of groups) {
-                  const distinctIds = new Set(g.map(pt => pt.fbId));
-                  if (distinctIds.size < 2) continue;
-                  const avgYb = g.reduce((s, pt) => s + pt.yb, 0) / g.length;
-                  ctx.fillStyle = g[0].mau;
-                  ctx.fillText(String(distinctIds.size), xRB - 4 * hpr, avgYb - 2 * vpr);
-                }
-                ctx.restore();
+              } catch (_e) {
+                // lỗi vẽ số hợp lưu không ảnh hưởng các bộ Fib
               }
 
               ctx.restore();
