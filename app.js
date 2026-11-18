@@ -3332,6 +3332,24 @@ const FIB_LEVELS = [
 
 const FIB_HOP_LUU_PCT = 0.5;
 
+// Đổi thời gian nến (chart time, giây UTC+7) → tọa độ x CSS pixel, không dùng timeToCoordinate
+// vì timeToCoordinate trả null khi t không khớp chính xác một nến (ví dụ đổi khung giờ).
+// timeToIndex(t, true) tìm nến gần nhất → logicalToCoordinate trả tọa độ kể cả ngoài khung nhìn.
+function fibTimeToX(t) {
+  const ts = chart.timeScale();
+  const idx = ts.timeToIndex(t, true);
+  if (idx != null) return ts.logicalToCoordinate(idx);
+  // Ngoại suy khi t nằm ngoài toàn bộ dữ liệu
+  if (!duLieuNen.length) return null;
+  const n = duLieuNen.length;
+  const secPerBar = n >= 2 ? (duLieuNen[n - 1].time - duLieuNen[n - 2].time) : 3600;
+  if (secPerBar <= 0) return null;
+  if (t >= duLieuNen[n - 1].time) {
+    return ts.logicalToCoordinate(n - 1 + (t - duLieuNen[n - 1].time) / secPerBar);
+  }
+  return ts.logicalToCoordinate(0 + (t - duLieuNen[0].time) / secPerBar);
+}
+
 class FibPrimitive {
   constructor() { this._series = null; this._chart = null; this._requestUpdate = null; }
   attached(p) { this._series = p.series; this._chart = p.chart; this._requestUpdate = p.requestUpdate; }
@@ -3369,9 +3387,9 @@ class FibPrimitive {
                 const isMono = kieu === 'don';
 
                 // Tọa độ neo — chỉ dùng cho đường chéo & chấm neo; level lines không cần
-                const x1c = ts.timeToCoordinate(fb.t1);
+                const x1c = fibTimeToX(fb.t1);
                 const y1c = self._series.priceToCoordinate(fb.p1);
-                const x2c = ts.timeToCoordinate(fb.t2);
+                const x2c = fibTimeToX(fb.t2);
                 const y2c = self._series.priceToCoordinate(fb.p2);
                 const x1b = x1c != null ? x1c * hpr : null;
                 const y1b = y1c != null ? y1c * vpr : null;
@@ -3567,9 +3585,9 @@ function fibAnchorHitTest(x, y, thr) {
   const ds = fibLayDS();
   const fb = ds.find(f => f.id === fibSelected);
   if (!fb) return null;
-  const x1c = chart.timeScale().timeToCoordinate(fb.t1);
+  const x1c = fibTimeToX(fb.t1);
   const y1c = nenSeries.priceToCoordinate(fb.p1);
-  const x2c = chart.timeScale().timeToCoordinate(fb.t2);
+  const x2c = fibTimeToX(fb.t2);
   const y2c = nenSeries.priceToCoordinate(fb.p2);
   if (x1c != null && y1c != null && Math.abs(x - x1c) <= thr && Math.abs(y - y1c) <= thr) return 1;
   if (x2c != null && y2c != null && Math.abs(x - x2c) <= thr && Math.abs(y - y2c) <= thr) return 2;
@@ -3699,8 +3717,8 @@ function fibVePanel() {
       try {
         const fb = fibLayDS().find(f => f.id === el.dataset.id);
         if (fb) {
-          const idx = duLieuNen.findIndex(n => n.time === fb.t1);
-          if (idx >= 0) {
+          const idx = chart.timeScale().timeToIndex(fb.t1, true);
+          if (idx != null) {
             const range = chart.timeScale().getVisibleLogicalRange();
             const span = range ? range.to - range.from : 150;
             chart.timeScale().setVisibleLogicalRange({ from: idx - span * 0.3, to: idx + span * 0.7 });
