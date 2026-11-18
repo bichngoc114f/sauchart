@@ -571,6 +571,11 @@ button { font-family: inherit; }
 
 /* ===== Fibonacci ===== */
 .icon-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.icon-btn.fib-loc { position: relative; border-color: #f5c518; }
+.icon-btn.fib-loc::after {
+  content: ''; position: absolute; top: 2px; right: 2px;
+  width: 6px; height: 6px; border-radius: 50%; background: #f5c518;
+}
 .fib-ds-list { max-height: 50vh; overflow-y: auto; padding-bottom: 6px; }
 .fib-ds-row {
   display: flex; flex-direction: column; gap: 4px;

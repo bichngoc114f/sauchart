@@ -22,6 +22,9 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.
 - Không có vùng tô nền; chỉ có đường kẻ ngang và đường nối chéo khi chọn.
 - Đường kẻ ngang hiển thị ở độ mờ 25% (hằng số `FIB_DUONG_ALPHA = 0.25`); số hợp lưu và đường chéo khi chọn vẫn rõ 100%.
+- Chế độ "Chỉ hiện vùng hợp lưu" (ô tích `fibHlChk` trong bảng Fib, khóa `'sauchart.fibHopLuu.<MA>'`, mặc định false): bật thì `FibPrimitive.draw` và `fibHitTest` chỉ xét các đường thuộc nhóm hợp lưu; nút Fib có chấm vàng (class `fib-loc`).
+  - `fibTinhHopLuu()` gom nhóm theo giá của mọi Fib đang hiển thị (không phụ thuộc khung nhìn), trả `{groups, keys: Set('fbId|r')}`; dùng chung cho lọc, số hợp lưu, hit-test và `fibTinhNhomHopLuu()`.
+  - Danh sách Fib trong bảng không bị lọc; chọn Fib từ danh sách vẫn hiện đường chéo + chấm neo dù đường ngang bị ẩn.
 - Đường nối chéo: CHỈ hiện khi bấm chọn đường mức ngang (không hiện mặc định).
   - `fibDiagIds` = Set fbId cần vẽ đường nối; null = không vẽ gì.
   - Bấm đường có nhóm hợp lưu (≥2 Fib trong 0.5%) → `fibTinhNhomHopLuu()` trả về Set tất cả Fib trong nhóm.

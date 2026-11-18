@@ -3358,6 +3358,43 @@ function fibTimeToX(t) {
   return ts.logicalToCoordinate(0 + (t - duLieuNen[0].time) / secPerBar);
 }
 
+function fibHopLuuGetOnly() { return docBoNho('fibHopLuu.' + maHienTai, false); }
+function fibHopLuuSetOnly(v) { ghiBoNho('fibHopLuu.' + maHienTai, v); }
+
+// Gom nhóm mọi mức của các Fib đang hiển thị theo giá (không phụ thuộc khung nhìn).
+// Trả về { groups: [[{p, r, fbId}]] (chỉ nhóm có ≥ 2 Fib khác nhau), keys: Set('fbId|r') }.
+function fibTinhHopLuu() {
+  const keys = new Set();
+  const groupsOut = [];
+  if (!fibGetShow()) return { groups: groupsOut, keys };
+  const pts = [];
+  for (const fb of fibLayDS()) {
+    if (fb.hidden || Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
+    for (const lv of FIB_LEVELS) {
+      pts.push({ p: fb.p2 + (fb.p1 - fb.p2) * lv.r, r: lv.r, fbId: fb.id });
+    }
+  }
+  pts.sort((a, b) => a.p - b.p);
+  const groups = [];
+  for (const pt of pts) {
+    let placed = false;
+    for (const g of groups) {
+      if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
+        g.push(pt);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) groups.push([pt]);
+  }
+  for (const g of groups) {
+    if (new Set(g.map(pt => pt.fbId)).size < 2) continue;
+    groupsOut.push(g);
+    for (const pt of g) keys.add(pt.fbId + '|' + pt.r);
+  }
+  return { groups: groupsOut, keys };
+}
+
 class FibPrimitive {
   constructor() { this._series = null; this._chart = null; this._requestUpdate = null; }
   attached(p) { this._series = p.series; this._chart = p.chart; this._requestUpdate = p.requestUpdate; }
@@ -3381,10 +3418,12 @@ class FibPrimitive {
               const xLB = 0;
               const xRB = bitmapSize.width;
               const all = [...ds];
-              const allLevPts = [];
               if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
 
               const showAll = fibGetShow();
+              const onlyHL = fibHopLuuGetOnly();
+              const hl = fibTinhHopLuu();
+              const levInfo = new Map();
               for (const fb of all) {
                 const isP = fb.id === '__prev__';
                 const isSel = !isP && fb.id === fibSelected;
@@ -3426,12 +3465,12 @@ class FibPrimitive {
                   const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
                   const yc = self._series.priceToCoordinate(p);
                   const mau = isMono ? '#e0e0e0' : lv.mau;
-                  return { p, yb: yc != null ? yc * vpr : null, mau };
+                  return { p, r: lv.r, yb: yc != null ? yc * vpr : null, mau };
                 });
-                // Thu thập cho hợp lưu (không phải preview, đang hiển thị)
-                if (!isP && showAll && !fb.hidden) {
-                  for (const _lv of levs) {
-                    if (_lv.yb != null) allLevPts.push({ p: _lv.p, yb: _lv.yb, mau: _lv.mau, fbId: fb.id, isM: isMono });
+                // Vị trí/màu từng mức để vẽ số hợp lưu (không phải preview)
+                if (!isP) {
+                  for (const lv of levs) {
+                    if (lv.yb != null) levInfo.set(fb.id + '|' + lv.r, { yb: lv.yb, mau: lv.mau, isM: isMono });
                   }
                 }
 
@@ -3439,6 +3478,7 @@ class FibPrimitive {
                 ctx.globalAlpha = isP ? FIB_DUONG_ALPHA * 0.7 : FIB_DUONG_ALPHA;
                 for (const lv of levs) {
                   if (lv.yb == null) continue;
+                  if (onlyHL && !isP && !hl.keys.has(fb.id + '|' + lv.r)) continue;
                   ctx.strokeStyle = lv.mau;
                   ctx.lineWidth = lw;
                   ctx.beginPath();
@@ -3465,32 +3505,21 @@ class FibPrimitive {
               }
               // Số hợp lưu: nhóm các mức giá trong vòng FIB_HOP_LUU_PCT% của nhau
               try {
-                if (allLevPts.length >= 2 && showAll) {
-                  allLevPts.sort((a, b) => a.p - b.p);
-                  const groups = [];
-                  for (const pt of allLevPts) {
-                    let placed = false;
-                    for (const g of groups) {
-                      if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
-                        g.push(pt);
-                        placed = true;
-                        break;
-                      }
-                    }
-                    if (!placed) groups.push([pt]);
-                  }
+                if (hl.groups.length) {
                   ctx.save();
                   ctx.globalAlpha = 1;
                   ctx.font = `bold ${Math.round(11 * vpr)}px sans-serif`;
                   ctx.textAlign = 'right';
                   ctx.textBaseline = 'bottom';
                   ctx.lineJoin = 'round';
-                  for (const g of groups) {
-                    const distinctIds = new Set(g.map(pt => pt.fbId));
-                    const cnt = distinctIds.size;
-                    if (cnt < 2) continue;
+                  for (const g of hl.groups) {
+                    const cnt = new Set(g.map(pt => pt.fbId)).size;
                     // Mỗi đường trong nhóm vẽ riêng, bỏ qua nếu quá gần đường trên
-                    const ybList = g.map(pt => ({ yb: pt.yb, mau: pt.isM ? '#ffffff' : pt.mau }));
+                    const ybList = [];
+                    for (const pt of g) {
+                      const inf = levInfo.get(pt.fbId + '|' + pt.r);
+                      if (inf) ybList.push({ yb: inf.yb, mau: inf.isM ? '#ffffff' : inf.mau });
+                    }
                     ybList.sort((a, b) => a.yb - b.yb);
                     let lastDrawnYb = -Infinity;
                     for (const item of ybList) {
@@ -3568,11 +3597,13 @@ function fibXYToAnchor(x, y) {
 function fibHitTest(x, y, thr) {
   _fibLastHitPrice = null;
   if (!fibGetShow()) return null;
+  const hlKeys = fibHopLuuGetOnly() ? fibTinhHopLuu().keys : null;
   const ds = fibLayDS();
   for (let i = ds.length - 1; i >= 0; i--) {
     const fb = ds[i];
     if (fb.hidden || Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
     for (const lv of FIB_LEVELS) {
+      if (hlKeys && !hlKeys.has(fb.id + '|' + lv.r)) continue;
       const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
       const yc = nenSeries.priceToCoordinate(p);
       if (yc == null) continue;
@@ -3605,31 +3636,10 @@ function fibAnchorHitTest(x, y, thr) {
 function fibTinhNhomHopLuu(clickedFbId, clickedPrice) {
   const result = new Set([clickedFbId]);
   if (clickedPrice == null) return result;
-  const ds = fibLayDS().filter(f => !f.hidden && Math.abs(f.p1 - f.p2) > 1e-9);
-  const allLevs = [];
-  for (const fb of ds) {
-    for (const lv of FIB_LEVELS) {
-      allLevs.push({ p: fb.p2 + (fb.p1 - fb.p2) * lv.r, fbId: fb.id });
-    }
-  }
-  allLevs.sort((a, b) => a.p - b.p);
-  const groups = [];
-  for (const pt of allLevs) {
-    let placed = false;
-    for (const g of groups) {
-      if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
-        g.push(pt);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) groups.push([pt]);
-  }
-  for (const g of groups) {
+  for (const g of fibTinhHopLuu().groups) {
     for (const pt of g) {
       if (pt.fbId === clickedFbId && Math.abs(pt.p - clickedPrice) < 1e-6) {
-        const ids = new Set(g.map(x => x.fbId));
-        return ids.size >= 2 ? ids : result;
+        return new Set(g.map(x => x.fbId));
       }
     }
   }
@@ -3681,6 +3691,15 @@ function fibVeComplet(x, y) {
   fibVaoMode(false);
 }
 
+// Cập nhật dấu hiệu lọc trên nút Fib và dòng chú thích "chưa có vùng hợp lưu" trong bảng
+function fibCapNhatLocHL() {
+  const on = fibHopLuuGetOnly();
+  const btn = document.getElementById('btnFib');
+  if (btn) btn.classList.toggle('fib-loc', on);
+  const note = document.getElementById('fibHlNote');
+  if (note) note.style.display = (on && !fibTinhHopLuu().groups.length) ? '' : 'none';
+}
+
 function fibVePanel() {
   const panelFib = document.getElementById('panelFib');
   if (!panelFib || panelFib.hidden) return;
@@ -3694,6 +3713,12 @@ function fibVePanel() {
     `<button id="fibBtnVeTrong" class="cobo-btn${fibBatMode ? ' active' : ''}">Vẽ FIB</button>` +
     `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
     `<input type="checkbox" id="fibShowChk"${showAll ? ' checked' : ''}> Hiển thị Fib</label>` +
+    `</div>` +
+    `<div style="padding:0 14px 6px">` +
+    `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
+    `<input type="checkbox" id="fibHlChk"${fibHopLuuGetOnly() ? ' checked' : ''}> Chỉ hiện vùng hợp lưu</label>` +
+    `<div id="fibHlNote" style="display:none;margin-top:4px;font-size:11px;color:var(--muted)">` +
+    `Chưa có vùng hợp lưu (cần ≥ 2 Fib có đường trùng trong 0.5%)</div>` +
     `</div>`;
 
   if (!ds.length) {
@@ -3736,14 +3761,23 @@ function fibVePanel() {
   const showChk = document.getElementById('fibShowChk');
   if (showChk) showChk.onchange = () => {
     fibSetShow(showChk.checked);
+    fibCapNhatLocHL();
     if (fibPrim) fibPrim.update();
   };
+
+  const hlChk = document.getElementById('fibHlChk');
+  if (hlChk) hlChk.onchange = () => {
+    fibHopLuuSetOnly(hlChk.checked);
+    fibCapNhatLocHL();
+    if (fibPrim) fibPrim.update();
+  };
+  fibCapNhatLocHL();
 
   body.querySelectorAll('.fib-cb').forEach(cb => {
     cb.onchange = () => {
       const ds2 = fibLayDS();
       const fb = ds2.find(f => f.id === cb.dataset.id);
-      if (fb) { fb.hidden = !cb.checked; fibLuuDS(ds2); if (fibPrim) fibPrim.update(); }
+      if (fb) { fb.hidden = !cb.checked; fibLuuDS(ds2); fibCapNhatLocHL(); if (fibPrim) fibPrim.update(); }
     };
   });
 
@@ -3805,6 +3839,7 @@ function fibTai() {
   fibDragState = null;
   fibPointerActive = false;
   fibCapNhatXoaBtn();
+  fibCapNhatLocHL();
   fibVePanel();
   if (fibPrim) fibPrim.update();
 }
@@ -3954,6 +3989,8 @@ function fibKhoiDong() {
       if (!panelFib.contains(e.target) && e.target !== btnFibEl) panelFib.hidden = true;
     });
   }
+
+  fibCapNhatLocHL();
 
   const btnDongFib = document.getElementById('btnDongFib');
   if (btnDongFib) btnDongFib.onclick = () => { document.getElementById('panelFib').hidden = true; };
