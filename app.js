@@ -3330,11 +3330,7 @@ const FIB_LEVELS = [
   { r: 2.618, mau: '#ec407a' },
 ];
 
-const FIB_MONO_MAUS = {
-  0: '#e0e0e0', 0.236: '#9e9e9e', 0.382: '#9e9e9e',
-  0.5: '#e0e0e0', 0.618: '#9e9e9e', 0.786: '#9e9e9e',
-  1: '#e0e0e0', 1.618: '#616161', 2.618: '#616161',
-};
+const FIB_HOP_LUU_PCT = 0.5;
 
 class FibPrimitive {
   constructor() { this._series = null; this._chart = null; this._requestUpdate = null; }
@@ -3357,6 +3353,7 @@ class FibPrimitive {
               const ts = self._chart.timeScale();
               ctx.save();
               const all = [...ds];
+              const allLevPts = [];
               if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
 
               const showAll = fibGetShow();
@@ -3401,10 +3398,17 @@ class FibPrimitive {
                 const levs = FIB_LEVELS.map(lv => {
                   const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
                   const yc = self._series.priceToCoordinate(p);
-                  const mau = isMono ? (FIB_MONO_MAUS[lv.r] || '#9e9e9e') : lv.mau;
+                  const mau = isMono ? '#e0e0e0' : lv.mau;
                   return { p, yb: yc != null ? yc * vpr : null, mau };
                 });
-                const bandAlpha = isMono ? '0a' : '0f';
+                const bandAlpha = isMono ? '08' : '0f';
+
+                // Thu thập cho hợp lưu (không phải preview, đang hiển thị)
+                if (!isP && showAll && !fb.hidden) {
+                  for (const _lv of levs) {
+                    if (_lv.yb != null) allLevPts.push({ p: _lv.p, yb: _lv.yb, mau: _lv.mau, fbId: fb.id });
+                  }
+                }
 
                 // Tô nền giữa các mức
                 for (let i = 0; i < levs.length - 1; i++) {
@@ -3440,6 +3444,35 @@ class FibPrimitive {
                   }
                 }
               }
+              // Số hợp lưu: nhóm các mức giá trong vòng FIB_HOP_LUU_PCT% của nhau
+              if (allLevPts.length >= 2 && showAll) {
+                allLevPts.sort((a, b) => a.p - b.p);
+                const groups = [];
+                for (const pt of allLevPts) {
+                  let placed = false;
+                  for (const g of groups) {
+                    if (g[0].p > 0 && Math.abs(pt.p - g[0].p) / g[0].p <= FIB_HOP_LUU_PCT / 100) {
+                      g.push(pt);
+                      placed = true;
+                      break;
+                    }
+                  }
+                  if (!placed) groups.push([pt]);
+                }
+                ctx.save();
+                ctx.font = `bold ${Math.round(10 * vpr)}px sans-serif`;
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'bottom';
+                for (const g of groups) {
+                  const distinctIds = new Set(g.map(pt => pt.fbId));
+                  if (distinctIds.size < 2) continue;
+                  const avgYb = g.reduce((s, pt) => s + pt.yb, 0) / g.length;
+                  ctx.fillStyle = g[0].mau;
+                  ctx.fillText(String(distinctIds.size), xRB - 4 * hpr, avgYb - 2 * vpr);
+                }
+                ctx.restore();
+              }
+
               ctx.restore();
             });
           }
