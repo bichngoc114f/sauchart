@@ -3827,8 +3827,8 @@ function fibKhoiDong() {
     btnFibEl.onclick = (e) => {
       e.stopPropagation();
       if (!panelFib.hidden) { panelFib.hidden = true; return; }
-      fibVePanel();
       panelFib.hidden = false;
+      fibVePanel();
     };
     document.addEventListener('click', (e) => {
       if (!panelFib || panelFib.hidden) return;
