@@ -26,7 +26,8 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.
 - Không có vùng tô nền; chỉ có đường kẻ ngang và đường nối chéo khi chọn.
 - Độ đậm vạch Fib: thanh kéo `fibAlphaRange` (5–100%, bước 5) trong bảng Fib, nút "Mặc định"; khóa toàn cục `'sauchart.fibAlpha'` (0.05–1), mặc định `FIB_DUONG_ALPHA = 0.25`, đọc qua `fibGetAlpha()`. Kéo thanh vẽ lại ngay (gộp bằng `fibVeLaiRaf()`); chỉ ảnh hưởng đường mức, số hợp lưu và đường chéo vẫn rõ 100%.
-- Công tắc "Hiện số hợp lưu" (`fibSoChk`, khóa toàn cục `'sauchart.fibSo'`, mặc định true, đọc qua `fibSoGet()`): chỉ ẩn/hiện các số 2/3; việc tính nhóm hợp lưu (`fibTinhHopLuu()`) vẫn chạy nên chế độ Chỉ hiện vùng hợp lưu và bấm đường hợp lưu vẫn đúng. File sao lưu có thêm `fibAlpha`, `fibSo` (tùy chọn khi khôi phục).
+- Số hợp lưu (2, 3...) ở mép phải LUÔN hiện, không có công tắc (đã bỏ khóa `sauchart.fibSo`).
+- Công tắc "Hiện số dải Fib (0.5, 0.618...)" (`fibNhanChk`, khóa toàn cục `'sauchart.fibNhan'`, mặc định TẮT, đọc qua `fibNhanGet()`): bật thì vẽ tỉ lệ (0, 0.236, ..., 2.618, không kèm giá) ở mép TRÁI ngay trên từng đường đang vẽ, cỡ 10px, alpha 0.9 độc lập với thanh độ đậm, viền chữ #1d1f28; nhãn cách nhau <10px thì nhãn sau lệch xuống 10px, vẫn chồng thì bỏ (Fib đang chọn được ưu tiên). File sao lưu có thêm `fibAlpha`, `fibNhan` (tùy chọn khi khôi phục).
 - Chế độ "Chỉ hiện vùng hợp lưu" (ô tích `fibHlChk` trong bảng Fib, khóa `'sauchart.fibHopLuu.<MA>'`, mặc định false): bật thì `FibPrimitive.draw` và `fibHitTest` chỉ xét các đường thuộc nhóm hợp lưu; nút Fib có chấm vàng (class `fib-loc`).
   - `fibTinhHopLuu()` gom nhóm theo giá của mọi Fib đang hiển thị (không phụ thuộc khung nhìn), trả `{groups, keys: Set('fbId|r')}`; dùng chung cho lọc, số hợp lưu, hit-test và `fibTinhNhomHopLuu()`.
   - Danh sách Fib trong bảng không bị lọc; chọn Fib từ danh sách vẫn hiện đường chéo + chấm neo dù đường ngang bị ẩn.

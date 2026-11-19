@@ -3351,7 +3351,7 @@ function fibGetAlpha() {
   const v = docBoNho('fibAlpha', FIB_DUONG_ALPHA);
   return (typeof v === 'number' && v >= 0.05 && v <= 1) ? v : FIB_DUONG_ALPHA;
 }
-function fibSoGet() { return docBoNho('fibSo', true) !== false; }
+function fibNhanGet() { return docBoNho('fibNhan', false) === true; }
 
 // Gộp các lần vẽ lại khi kéo thanh độ đậm
 let _fibRaf = 0;
@@ -3445,6 +3445,8 @@ class FibPrimitive {
               const onlyHL = fibHopLuuGetOnly();
               const hl = fibTinhHopLuu();
               const levInfo = new Map();
+              const nhanOn = fibNhanGet();
+              const nhanList = [];
               for (const fb of all) {
                 const isP = fb.id === '__prev__';
                 const isSel = !isP && fb.id === fibSelected;
@@ -3500,6 +3502,7 @@ class FibPrimitive {
                 for (const lv of levs) {
                   if (lv.yb == null) continue;
                   if (onlyHL && !isP && !hl.keys.has(fb.id + '|' + lv.r)) continue;
+                  if (nhanOn && !isP) nhanList.push({ yb: lv.yb, text: String(lv.r), mau: lv.mau, sel: isSel });
                   ctx.strokeStyle = lv.mau;
                   ctx.lineWidth = lw;
                   ctx.beginPath();
@@ -3524,9 +3527,40 @@ class FibPrimitive {
                   }
                 }
               }
+              // Nhãn tỉ lệ ở mép trái (tùy chọn), độc lập với thanh độ đậm
+              try {
+                if (nhanList.length) {
+                  const vung = nhanList.filter(n => n.yb >= 6 * vpr && n.yb <= bitmapSize.height);
+                  // Fib đang chọn được ưu tiên giữ nhãn; còn lại xếp theo vị trí từ trên xuống
+                  vung.sort((a, b) => (b.sel - a.sel) || (a.yb - b.yb));
+                  const khoang = 10 * vpr;
+                  const daVe = [];
+                  const trong = (y) => daVe.every(v => Math.abs(v - y) >= khoang);
+                  ctx.save();
+                  ctx.globalAlpha = 0.9;
+                  ctx.font = `${Math.round(10 * vpr)}px sans-serif`;
+                  ctx.textAlign = 'left';
+                  ctx.textBaseline = 'bottom';
+                  ctx.lineJoin = 'round';
+                  ctx.lineWidth = 3 * hpr;
+                  for (const n of vung) {
+                    let y = n.yb;
+                    if (!trong(y)) { y = n.yb + khoang; if (!trong(y)) continue; }
+                    daVe.push(y);
+                    ctx.strokeStyle = '#1d1f28';
+                    ctx.strokeText(n.text, 4 * hpr, y - 2 * vpr);
+                    ctx.fillStyle = n.mau;
+                    ctx.fillText(n.text, 4 * hpr, y - 2 * vpr);
+                  }
+                  ctx.restore();
+                }
+              } catch (_e) {
+                // lỗi vẽ nhãn không ảnh hưởng các đường Fib
+              }
+
               // Số hợp lưu: nhóm các mức giá trong vòng FIB_HOP_LUU_PCT% của nhau
               try {
-                if (hl.groups.length && fibSoGet()) {
+                if (hl.groups.length) {
                   ctx.save();
                   ctx.globalAlpha = 1;
                   ctx.font = `bold ${Math.round(11 * vpr)}px sans-serif`;
@@ -3722,7 +3756,7 @@ function fibDatThongBao(txt) {
 }
 
 function fibSaoLuuFile() {
-  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, fibAlpha: fibGetAlpha(), fibSo: fibSoGet() };
+  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet() };
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -3790,9 +3824,9 @@ function fibKiemTraSaoLuu(data) {
     if (typeof data.fibAlpha !== 'number' || !(data.fibAlpha >= 0.05 && data.fibAlpha <= 1)) return 'độ đậm vạch Fib (fibAlpha) không hợp lệ.';
     kq.fibAlpha = data.fibAlpha;
   }
-  if (data.fibSo !== undefined) {
-    if (typeof data.fibSo !== 'boolean') return 'cài đặt số hợp lưu (fibSo) không hợp lệ.';
-    kq.fibSo = data.fibSo;
+  if (data.fibNhan !== undefined) {
+    if (typeof data.fibNhan !== 'boolean') return 'cài đặt nhãn tỉ lệ (fibNhan) không hợp lệ.';
+    kq.fibNhan = data.fibNhan;
   }
   return kq;
 }
@@ -3811,7 +3845,7 @@ function fibKhoiPhucFile(file) {
     for (const ma of Object.keys(kq.fibShow)) ghiBoNho('fibShow.' + ma, kq.fibShow[ma]);
     for (const ma of Object.keys(kq.fibHopLuu)) ghiBoNho('fibHopLuu.' + ma, kq.fibHopLuu[ma]);
     if (kq.fibAlpha !== undefined) ghiBoNho('fibAlpha', kq.fibAlpha);
-    if (kq.fibSo !== undefined) ghiBoNho('fibSo', kq.fibSo);
+    if (kq.fibNhan !== undefined) ghiBoNho('fibNhan', kq.fibNhan);
     fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
     fibDatThongBao(`Đã khôi phục Fib cho ${Object.keys(kq.fib).length} mã.`);
   };
@@ -3847,10 +3881,6 @@ function fibVePanel() {
     `<div id="fibHlNote" style="display:none;margin-top:4px;font-size:11px;color:var(--muted)">` +
     `Chưa có vùng hợp lưu (cần ≥ 2 Fib có đường trùng trong 0.5%)</div>` +
     `</div>` +
-    `<div style="padding:0 14px 6px">` +
-    `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
-    `<input type="checkbox" id="fibSoChk"${fibSoGet() ? ' checked' : ''}> Hiện số hợp lưu (2, 3...)</label>` +
-    `</div>` +
     `<div style="padding:2px 14px 8px">` +
     `<div style="display:flex;align-items:center;gap:8px;font-size:12px">` +
     `<span>Độ đậm vạch Fib</span>` +
@@ -3859,6 +3889,10 @@ function fibVePanel() {
     `</div>` +
     `<input type="range" id="fibAlphaRange" min="5" max="100" step="5" value="${Math.round(fibGetAlpha() * 100)}"` +
     ` style="width:100%;margin:6px 0 0;touch-action:none">` +
+    `</div>` +
+    `<div style="padding:0 14px 6px">` +
+    `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
+    `<input type="checkbox" id="fibNhanChk"${fibNhanGet() ? ' checked' : ''}> Hiện số dải Fib (0.5, 0.618...)</label>` +
     `</div>`;
 
   if (!ds.length) {
@@ -3922,9 +3956,9 @@ function fibVePanel() {
     if (fibPrim) fibPrim.update();
   };
 
-  const soChk = document.getElementById('fibSoChk');
-  if (soChk) soChk.onchange = () => {
-    ghiBoNho('fibSo', soChk.checked);
+  const nhanChk = document.getElementById('fibNhanChk');
+  if (nhanChk) nhanChk.onchange = () => {
+    ghiBoNho('fibNhan', nhanChk.checked);
     fibVeLaiRaf();
   };
 
