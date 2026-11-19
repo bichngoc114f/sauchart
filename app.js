@@ -3344,7 +3344,21 @@ const FIB_LEVELS = [
 ];
 
 const FIB_HOP_LUU_PCT = 0.5;
-const FIB_DUONG_ALPHA = 0.25; // độ trong suốt của đường mức ngang
+const FIB_DUONG_ALPHA = 0.25; // độ đậm mặc định của đường mức ngang
+
+// Độ đậm vạch Fib do người dùng chỉnh (toàn cục), 0.05–1; chưa chỉnh thì dùng mặc định
+function fibGetAlpha() {
+  const v = docBoNho('fibAlpha', FIB_DUONG_ALPHA);
+  return (typeof v === 'number' && v >= 0.05 && v <= 1) ? v : FIB_DUONG_ALPHA;
+}
+function fibSoGet() { return docBoNho('fibSo', true) !== false; }
+
+// Gộp các lần vẽ lại khi kéo thanh độ đậm
+let _fibRaf = 0;
+function fibVeLaiRaf() {
+  if (_fibRaf) return;
+  _fibRaf = requestAnimationFrame(() => { _fibRaf = 0; if (fibPrim) fibPrim.update(); });
+}
 
 // Đổi thời gian nến (chart time, giây UTC+7) → tọa độ x CSS pixel, không dùng timeToCoordinate
 // vì timeToCoordinate trả null khi t không khớp chính xác một nến (ví dụ đổi khung giờ).
@@ -3427,6 +3441,7 @@ class FibPrimitive {
               if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
 
               const showAll = fibGetShow();
+              const duongAlpha = fibGetAlpha();
               const onlyHL = fibHopLuuGetOnly();
               const hl = fibTinhHopLuu();
               const levInfo = new Map();
@@ -3481,7 +3496,7 @@ class FibPrimitive {
                 }
 
                 // Đường ngang full chiều ngang (chỉ phụ thuộc vào giá)
-                ctx.globalAlpha = isP ? FIB_DUONG_ALPHA * 0.7 : FIB_DUONG_ALPHA;
+                ctx.globalAlpha = isP ? duongAlpha * 0.7 : duongAlpha;
                 for (const lv of levs) {
                   if (lv.yb == null) continue;
                   if (onlyHL && !isP && !hl.keys.has(fb.id + '|' + lv.r)) continue;
@@ -3511,7 +3526,7 @@ class FibPrimitive {
               }
               // Số hợp lưu: nhóm các mức giá trong vòng FIB_HOP_LUU_PCT% của nhau
               try {
-                if (hl.groups.length) {
+                if (hl.groups.length && fibSoGet()) {
                   ctx.save();
                   ctx.globalAlpha = 1;
                   ctx.font = `bold ${Math.round(11 * vpr)}px sans-serif`;
@@ -3707,7 +3722,7 @@ function fibDatThongBao(txt) {
 }
 
 function fibSaoLuuFile() {
-  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {} };
+  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, fibAlpha: fibGetAlpha(), fibSo: fibSoGet() };
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -3771,6 +3786,14 @@ function fibKiemTraSaoLuu(data) {
       kq[truong][ma] = data[truong][ma];
     }
   }
+  if (data.fibAlpha !== undefined) {
+    if (typeof data.fibAlpha !== 'number' || !(data.fibAlpha >= 0.05 && data.fibAlpha <= 1)) return 'độ đậm vạch Fib (fibAlpha) không hợp lệ.';
+    kq.fibAlpha = data.fibAlpha;
+  }
+  if (data.fibSo !== undefined) {
+    if (typeof data.fibSo !== 'boolean') return 'cài đặt số hợp lưu (fibSo) không hợp lệ.';
+    kq.fibSo = data.fibSo;
+  }
   return kq;
 }
 
@@ -3787,6 +3810,8 @@ function fibKhoiPhucFile(file) {
     for (const ma of Object.keys(kq.fib)) ghiBoNho('fib.' + ma, kq.fib[ma]);
     for (const ma of Object.keys(kq.fibShow)) ghiBoNho('fibShow.' + ma, kq.fibShow[ma]);
     for (const ma of Object.keys(kq.fibHopLuu)) ghiBoNho('fibHopLuu.' + ma, kq.fibHopLuu[ma]);
+    if (kq.fibAlpha !== undefined) ghiBoNho('fibAlpha', kq.fibAlpha);
+    if (kq.fibSo !== undefined) ghiBoNho('fibSo', kq.fibSo);
     fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
     fibDatThongBao(`Đã khôi phục Fib cho ${Object.keys(kq.fib).length} mã.`);
   };
@@ -3821,6 +3846,19 @@ function fibVePanel() {
     `<input type="checkbox" id="fibHlChk"${fibHopLuuGetOnly() ? ' checked' : ''}> Chỉ hiện vùng hợp lưu</label>` +
     `<div id="fibHlNote" style="display:none;margin-top:4px;font-size:11px;color:var(--muted)">` +
     `Chưa có vùng hợp lưu (cần ≥ 2 Fib có đường trùng trong 0.5%)</div>` +
+    `</div>` +
+    `<div style="padding:0 14px 6px">` +
+    `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
+    `<input type="checkbox" id="fibSoChk"${fibSoGet() ? ' checked' : ''}> Hiện số hợp lưu (2, 3...)</label>` +
+    `</div>` +
+    `<div style="padding:2px 14px 8px">` +
+    `<div style="display:flex;align-items:center;gap:8px;font-size:12px">` +
+    `<span>Độ đậm vạch Fib</span>` +
+    `<span id="fibAlphaVal" style="min-width:36px;color:var(--muted)">${Math.round(fibGetAlpha() * 100)}%</span>` +
+    `<button id="fibAlphaMacDinh" class="cobo-btn" style="font-size:11px;padding:2px 8px">Mặc định</button>` +
+    `</div>` +
+    `<input type="range" id="fibAlphaRange" min="5" max="100" step="5" value="${Math.round(fibGetAlpha() * 100)}"` +
+    ` style="width:100%;margin:6px 0 0;touch-action:none">` +
     `</div>`;
 
   if (!ds.length) {
@@ -3883,6 +3921,30 @@ function fibVePanel() {
     fibCapNhatLocHL();
     if (fibPrim) fibPrim.update();
   };
+
+  const soChk = document.getElementById('fibSoChk');
+  if (soChk) soChk.onchange = () => {
+    ghiBoNho('fibSo', soChk.checked);
+    fibVeLaiRaf();
+  };
+
+  const alphaRange = document.getElementById('fibAlphaRange');
+  const alphaVal = document.getElementById('fibAlphaVal');
+  const datAlpha = (pct) => {
+    if (alphaRange) alphaRange.value = pct;
+    if (alphaVal) alphaVal.textContent = pct + '%';
+    ghiBoNho('fibAlpha', pct / 100);
+    fibVeLaiRaf();
+  };
+  if (alphaRange) {
+    alphaRange.oninput = () => datAlpha(Number(alphaRange.value));
+    // kéo thanh không được cuộn biểu đồ hay bị coi là bấm ra ngoài đóng bảng
+    alphaRange.addEventListener('click', (e) => e.stopPropagation());
+    alphaRange.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    alphaRange.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+  }
+  const alphaMD = document.getElementById('fibAlphaMacDinh');
+  if (alphaMD) alphaMD.onclick = () => datAlpha(Math.round(FIB_DUONG_ALPHA * 100));
 
   const hlChk = document.getElementById('fibHlChk');
   if (hlChk) hlChk.onchange = () => {
