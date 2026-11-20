@@ -3332,16 +3332,37 @@ _applyPhongToBtn();
 // ==================== FIBONACCI RETRACEMENT ====================
 
 const FIB_LEVELS = [
-  { r: 0,     mau: '#9e9e9e' },
-  { r: 0.236, mau: '#ef5350' },
-  { r: 0.382, mau: '#ff9800' },
-  { r: 0.5,   mau: '#4caf50' },
-  { r: 0.618, mau: '#26a69a' },
-  { r: 0.786, mau: '#29b6f6' },
-  { r: 1,     mau: '#9e9e9e' },
-  { r: 1.618, mau: '#ab47bc' },
-  { r: 2.618, mau: '#ec407a' },
+  { r: 0 }, { r: 0.236 }, { r: 0.382 }, { r: 0.5 }, { r: 0.618 },
+  { r: 0.786 }, { r: 1 }, { r: 1.618 }, { r: 2.618 },
 ];
+
+// Kiểu Đa sắc: mỗi bộ Fib một màu (fb.mau) lấy từ bảng này; trắng/ghi dành cho Đơn sắc
+const FIB_BANG_MAU = [
+  '#29b6f6', '#ff9800', '#66bb6a', '#ef5350', '#ab47bc',
+  '#ffee58', '#26c6da', '#ec407a', '#8d6e63', '#d4e157',
+];
+function fibMauHopLe(m) { return typeof m === 'string' && /^#[0-9a-fA-F]{6}$/.test(m); }
+// Màu đầu tiên trong bảng chưa bộ nào dùng; dùng hết thì lấy màu ít được dùng nhất (từ đầu bảng)
+function fibMauTiepTheo(ds) {
+  const dem = FIB_BANG_MAU.map(() => 0);
+  for (const fb of ds) {
+    if (fb && fibMauHopLe(fb.mau)) {
+      const i = FIB_BANG_MAU.indexOf(fb.mau.toLowerCase());
+      if (i >= 0) dem[i]++;
+    }
+  }
+  let t = 0;
+  for (let i = 1; i < dem.length; i++) if (dem[i] < dem[t]) t = i;
+  return FIB_BANG_MAU[t];
+}
+// Gán màu cho các Fib chưa có (Fib vẽ trước đây); trả true nếu có thay đổi
+function fibGanMauThieu(ds) {
+  let doi = false;
+  for (const fb of ds) {
+    if (fb && !fibMauHopLe(fb.mau)) { fb.mau = fibMauTiepTheo(ds); doi = true; }
+  }
+  return doi;
+}
 
 const FIB_HOP_LUU_PCT = 0.5;
 const FIB_DUONG_ALPHA = 0.25; // độ đậm mặc định của đường mức ngang
@@ -3438,7 +3459,7 @@ class FibPrimitive {
               const xLB = 0;
               const xRB = bitmapSize.width;
               const all = [...ds];
-              if (hasPreview) all.push({ id: '__prev__', ...fibDangVe });
+              if (hasPreview) all.push({ id: '__prev__', ...fibDangVe, mau: fibMauTiepTheo(ds) });
 
               const showAll = fibGetShow();
               const duongAlpha = fibGetAlpha();
@@ -3455,6 +3476,7 @@ class FibPrimitive {
 
                 const kieu = isP ? 'da' : (fb.kieu || 'da');
                 const isMono = kieu === 'don';
+                const mauFib = fibMauHopLe(fb.mau) ? fb.mau : FIB_BANG_MAU[0];
 
                 // Tọa độ neo — chỉ dùng cho đường chéo & chấm neo; level lines không cần
                 const x1c = fibTimeToX(fb.t1);
@@ -3474,7 +3496,7 @@ class FibPrimitive {
                 if (showDiag && x1b != null && y1b != null && x2b != null && y2b != null) {
                   ctx.save();
                   ctx.setLineDash([4 * hpr, 3 * hpr]);
-                  ctx.strokeStyle = isMono ? '#e0e0e0' : '#777';
+                  ctx.strokeStyle = isMono ? '#e0e0e0' : mauFib;
                   ctx.lineWidth = lw;
                   ctx.beginPath();
                   ctx.moveTo(x1b, y1b);
@@ -3487,13 +3509,13 @@ class FibPrimitive {
                 const levs = FIB_LEVELS.map(lv => {
                   const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
                   const yc = self._series.priceToCoordinate(p);
-                  const mau = isMono ? '#e0e0e0' : lv.mau;
+                  const mau = isMono ? '#e0e0e0' : mauFib;
                   return { p, r: lv.r, yb: yc != null ? yc * vpr : null, mau };
                 });
-                // Vị trí/màu từng mức để vẽ số hợp lưu (không phải preview)
+                // Vị trí từng mức để vẽ số hợp lưu (không phải preview)
                 if (!isP) {
                   for (const lv of levs) {
-                    if (lv.yb != null) levInfo.set(fb.id + '|' + lv.r, { yb: lv.yb, mau: lv.mau, isM: isMono });
+                    if (lv.yb != null) levInfo.set(fb.id + '|' + lv.r, { yb: lv.yb });
                   }
                 }
 
@@ -3521,7 +3543,7 @@ class FibPrimitive {
                     ctx.arc(pt.xb, pt.yb, 5 * hpr, 0, Math.PI * 2);
                     ctx.fillStyle = dotFill;
                     ctx.fill();
-                    ctx.strokeStyle = '#888';
+                    ctx.strokeStyle = isMono ? '#888' : mauFib;
                     ctx.lineWidth = hpr;
                     ctx.stroke();
                   }
@@ -3573,7 +3595,7 @@ class FibPrimitive {
                     const ybList = [];
                     for (const pt of g) {
                       const inf = levInfo.get(pt.fbId + '|' + pt.r);
-                      if (inf) ybList.push({ yb: inf.yb, mau: inf.isM ? '#ffffff' : inf.mau });
+                      if (inf) ybList.push({ yb: inf.yb, mau: '#ffffff' });
                     }
                     ybList.sort((a, b) => a.yb - b.yb);
                     let lastDrawnYb = -Infinity;
@@ -3609,6 +3631,8 @@ function fibLayDS() {
   if (_fibDsCache && _fibDsCache.ma === maHienTai) return _fibDsCache.ds;
   let ds = [];
   try { ds = docBoNho('fib.' + maHienTai, []); } catch (e) {}
+  if (!Array.isArray(ds)) ds = [];
+  if (fibGanMauThieu(ds)) { try { ghiBoNho('fib.' + maHienTai, ds); } catch (e) {} }
   _fibDsCache = { ma: maHienTai, ds };
   return ds;
 }
@@ -3739,7 +3763,7 @@ function fibVeComplet(x, y) {
   const a2 = fibXYToAnchor(x, y);
   if (Math.abs(fibDangVe.p1 - a2.p) > 1e-6) {
     const ds = fibLayDS();
-    ds.push({ id: fibMoiId(), t1: fibDangVe.t1, p1: fibDangVe.p1, t2: a2.t, p2: a2.p });
+    ds.push({ id: fibMoiId(), t1: fibDangVe.t1, p1: fibDangVe.p1, t2: a2.t, p2: a2.p, mau: fibMauTiepTheo(ds) });
     fibLuuDS(ds);
   }
   fibDangVe = null;
@@ -3808,6 +3832,7 @@ function fibKiemTraSaoLuu(data) {
       const o = { id: f.id, t1: f.t1, p1: f.p1, t2: f.t2, p2: f.p2 };
       if (typeof f.hidden === 'boolean') o.hidden = f.hidden;
       if (f.kieu === 'da' || f.kieu === 'don') o.kieu = f.kieu;
+      if (fibMauHopLe(f.mau)) o.mau = f.mau.toLowerCase();
       kq.fib[ma].push(o);
     }
   }
@@ -3906,8 +3931,22 @@ function fibVePanel() {
       const t2ms = (fb.t2 - LECH_GIO) * 1000;
       const huong = fb.p1 > fb.p2 ? '↘ đỉnh→đáy' : '↗ đáy→đỉnh';
       const isSel = fb.id === fibSelected;
+      const mauFb = fibMauHopLe(fb.mau) ? fb.mau.toLowerCase() : FIB_BANG_MAU[0];
+      const mauKhac = new Set(ds.filter(o => o !== fb && fibMauHopLe(o.mau)).map(o => o.mau.toLowerCase()));
+      let pal = '';
+      for (const m of FIB_BANG_MAU) {
+        pal += `<span class="fib-pal-c" data-id="${fb.id}" data-mau="${m}" title="${mauKhac.has(m) ? 'Đang được Fib khác dùng' : m}"` +
+          ` style="width:22px;height:22px;border-radius:3px;background:${m};display:inline-flex;align-items:center;justify-content:center;cursor:pointer;` +
+          `${m === mauFb ? 'outline:2px solid #fff;outline-offset:1px;' : ''}">` +
+          (mauKhac.has(m) ? `<i style="width:6px;height:6px;border-radius:50%;background:rgba(0,0,0,.6)"></i>` : '') + `</span>`;
+      }
       html += `<div class="fib-ds-row${isSel ? ' fib-ds-sel' : ''}">` +
+        `<div style="display:flex;align-items:center;gap:8px">` +
+        `<span class="fib-sw" data-id="${fb.id}" title="Đổi màu" style="display:inline-flex;padding:6px;margin:-6px;cursor:pointer">` +
+        `<i style="width:10px;height:10px;border-radius:2px;background:${mauFb};display:block"></i></span>` +
         `<input type="checkbox" class="fib-cb" data-id="${fb.id}"${hidden ? '' : ' checked'} title="Hiện/ẩn">` +
+        `</div>` +
+        `<div class="fib-pal" data-id="${fb.id}" style="display:none;gap:6px;flex-wrap:wrap;padding:2px 0 4px">${pal}</div>` +
         `<div class="fib-ds-info" data-id="${fb.id}">` +
         `<span class="fib-huong">${huong}</span> ` +
         `Đ1: <b>${eaFmtVN(t1ms)}</b> @ <b>${dinhDangGia(fb.p1)}</b>` +
@@ -3987,6 +4026,27 @@ function fibVePanel() {
     if (fibPrim) fibPrim.update();
   };
   fibCapNhatLocHL();
+
+  body.querySelectorAll('.fib-sw').forEach(sw => {
+    sw.onclick = () => {
+      const pal = body.querySelector(`.fib-pal[data-id="${sw.dataset.id}"]`);
+      if (!pal) return;
+      const mo = pal.style.display !== 'none';
+      body.querySelectorAll('.fib-pal').forEach(x => { x.style.display = 'none'; });
+      if (!mo) pal.style.display = 'flex';
+    };
+  });
+  body.querySelectorAll('.fib-pal-c').forEach(c => {
+    c.onclick = () => {
+      const ds2 = fibLayDS();
+      const fb = ds2.find(f => f.id === c.dataset.id);
+      if (!fb) return;
+      fb.mau = c.dataset.mau;
+      fibLuuDS(ds2);
+      fibVePanel();
+      if (fibPrim) fibPrim.update();
+    };
+  });
 
   body.querySelectorAll('.fib-cb').forEach(cb => {
     cb.onchange = () => {
@@ -4201,7 +4261,9 @@ function fibKhoiDong() {
     };
     document.addEventListener('click', (e) => {
       if (!panelFib || panelFib.hidden) return;
-      if (!panelFib.contains(e.target) && e.target !== btnFibEl) panelFib.hidden = true;
+      // composedPath: phần tử vừa bấm có thể đã bị dựng lại (gỡ khỏi cây) trong lúc xử lý, contains() sẽ sai
+      const trongBang = e.composedPath ? e.composedPath().includes(panelFib) : panelFib.contains(e.target);
+      if (!trongBang && e.target !== btnFibEl) panelFib.hidden = true;
     });
   }
 

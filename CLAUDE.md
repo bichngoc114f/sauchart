@@ -16,7 +16,7 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 ## Fibonacci
 - Nút "📐 Fib" (id `btnFib`) mở bảng quản lý; nút "Xóa" (id `fibXoaChon`, ẩn khi chưa chọn).
 - State: `fibPrim`, `fibBatMode`, `fibVePhase`, `fibDangVe`, `fibSelected`, `fibDiagIds`, `fibDragState`, `_fibDsCache`, `_fibLastHitPrice`.
-- Storage: localStorage key `'sauchart.fib.<MA>'`, value `[{id, t1, p1, t2, p2, hidden?, kieu?}]` (t = UTC seconds).
+- Storage: localStorage key `'sauchart.fib.<MA>'`, value `[{id, t1, p1, t2, p2, hidden?, kieu?, mau?}]` (t = UTC seconds, `mau` = màu hex của bộ Fib).
 - `fibTai()` gọi từ `napBieuDo()` để reset khi đổi mã/khung giờ.
 - `FibPrimitive` gắn vĩnh viễn vào `nenSeries` qua `fibKhoiDong()` ở cuối file.
 - Lưu bền vững (`storage.js`, nạp trước `app.js`): `ghiBoNho()` ghi localStorage rồi `sauStore.ghi()` sao chép (async, debounce) vào IndexedDB `sauchart-data`/store `kv` ({k, v, ts}) cho mọi khóa `sauchart.*` (Fib, fibShow, fibHopLuu, cài đặt chỉ báo/Co bó/EA, `lanCuoi`...). Không đụng DB `sauchart-ea` của EA.
@@ -24,6 +24,8 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
   - `sauchart.lanCuoi` = `{ma, khung}`: mã/khung lần xem cuối, mở lại vào đúng đó.
   - Bảng Fib có "Sao lưu Fib" (tải `sauchart-fib-YYYYMMDD-HHmm.json`: `{phienBan:1, ts, fib, fibShow, fibHopLuu}` theo mã) và "Khôi phục Fib" (`fibKiemTraSaoLuu()` kiểm tra cấu trúc, `confirm`, ghi qua `ghiBoNho`). Định dạng Fib trong localStorage không đổi.
 - Level 0 ở point2, level 1 ở point1: `price = p2 + (p1 - p2) * ratio`.
+- Kiểu Đa sắc = mỗi bộ Fib MỘT màu riêng (`fb.mau`, lấy từ `FIB_BANG_MAU` 10 màu): `fibMauTiepTheo(ds)` chọn màu đầu bảng chưa dùng (hết thì màu ít dùng nhất), gán khi vẽ xong (`fibVeComplet`); Fib cũ thiếu `mau` được `fibGanMauThieu()` gán theo thứ tự khi đọc trong `fibLayDS()` rồi lưu lại. Màu giữ nguyên khi đổi kiểu/khung/mã. Mọi vạch, đường chéo, chấm neo (viền), nhãn tỉ lệ của bộ đó dùng `fb.mau`; số hợp lưu luôn trắng `#ffffff`; bản xem trước dùng màu sắp gán. Kiểu Đơn sắc vẫn trắng `#e0e0e0`.
+  - Danh sách trong bảng Fib có ô màu 10x10 đầu mỗi dòng (cả khi Đơn sắc); bấm ô → hàng 10 màu (`.fib-pal`), màu đang được Fib khác dùng có chấm đánh dấu nhưng vẫn chọn được. Sao lưu/khôi phục mang theo `mau`.
 - Không có vùng tô nền; chỉ có đường kẻ ngang và đường nối chéo khi chọn.
 - Độ đậm vạch Fib: thanh kéo `fibAlphaRange` (5–100%, bước 5) trong bảng Fib, nút "Mặc định"; khóa toàn cục `'sauchart.fibAlpha'` (0.05–1), mặc định `FIB_DUONG_ALPHA = 0.25`, đọc qua `fibGetAlpha()`. Kéo thanh vẽ lại ngay (gộp bằng `fibVeLaiRaf()`); chỉ ảnh hưởng đường mức, số hợp lưu và đường chéo vẫn rõ 100%.
 - Số hợp lưu (2, 3...) ở mép phải LUÔN hiện, không có công tắc (đã bỏ khóa `sauchart.fibSo`).
