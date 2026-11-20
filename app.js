@@ -1398,7 +1398,6 @@ class CoboPrimitive {
             if (coboLoai === 2 && !hasSMA && !hasBB) return;
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
               const ts = self._chart.timeScale();
-              const H = bitmapSize.height;
               const barH = Math.max(1, Math.round(5 * vpr));
               const gap = Math.round(7 * vpr);
               const lr = ts.getVisibleLogicalRange();
@@ -1441,16 +1440,6 @@ class CoboPrimitive {
                   if (!showMask) continue;
                   const r = _xbcw(i); if (!r) continue;
                   const { xb, cw } = r;
-                  if (coboTabSel === 0 && !coboComboSel) {
-                    for (const k of COBO_KHUNG) {
-                      if (!(showMask & k.bit)) continue;
-                      ctx.fillStyle = k.mau + '14';
-                      ctx.fillRect(xb, 0, cw, H);
-                    }
-                  } else {
-                    ctx.fillStyle = 'rgba(180,180,180,0.05)';
-                    ctx.fillRect(xb, 0, cw, H);
-                  }
                   // Nền tối mỏng để bars nổi bật trên mọi màu nền
                   ctx.fillStyle = 'rgba(0,0,0,0.45)';
                   ctx.fillRect(xb, 0, cw, COBO_KHUNG.length * gap + barH);
@@ -1466,8 +1455,6 @@ class CoboPrimitive {
                   if (!coboBBMask[i]) continue;
                   const r = _xbcw(i); if (!r) continue;
                   const { xb, cw } = r;
-                  ctx.fillStyle = BBM + '14';
-                  ctx.fillRect(xb, 0, cw, H);
                   ctx.fillStyle = BBM;
                   ctx.fillRect(xb, 0, cw, barH);
                 }
@@ -1485,12 +1472,6 @@ class CoboPrimitive {
                   if (!cm && !smaBits) continue;
                   const r = _xbcw(i); if (!r) continue;
                   const { xb, cw } = r;
-                  // Nền mờ toàn chiều cao (chỉ khi có màu)
-                  if (cm) {
-                    const bgC = (cm & 1) ? C_TIM : (cm & 2) ? C_XAM : C_VANG;
-                    ctx.fillStyle = bgC + '14';
-                    ctx.fillRect(xb, 0, cw, H);
-                  }
                   const hasColor = !!cm, hasBands = !!smaBits;
                   // Nền tối phía sau bars
                   const darkH = !hasBands ? barH : (hasColor ? (1 + N_KH) : N_KH) * gap + barH;

@@ -10,6 +10,7 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - `COBO_KHUNG` id dùng chữ thường: `h12`, `h8`, `h4`, `h2`, `h1`.
 - `KHUNG_FMS` trong `coboTinhBitmask` phải dùng key chữ thường tương ứng.
 - coboLoai=2 (SMA+BB): BB shift +1 ngày, SMA mỗi khung shift +độ dài khung; TÍM=BB∩SMA, VÀNG=BB−SMA, XÁM=SMA−BB.
+- `CoboPrimitive` chỉ vẽ các thanh bar mảnh ở đỉnh chart (barH 5px, gap 7px) kèm dải nền tối `rgba(0,0,0,0.45)` cao đúng bằng khối bar; KHÔNG được tô nền full-height (`fillRect(xb, 0, cw, H)`) ở bất kỳ nhánh coboLoai nào (đã gỡ vì nhuộm màu cả nền đen).
 - EA hiện chỉ còn F3 (6 luồng: H2, H4, D, H1, M30, M15); F1 và F2 đã bị xóa.
 - KHÔNG sửa `ea-*.js`, `*-thong-bao.cjs`. Không thấy file thì DỪNG và báo.
 
