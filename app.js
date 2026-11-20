@@ -189,6 +189,7 @@ let watchlistThuGon = docBoNho('watchlistThuGon', true);
 let phongToKhungGia = docBoNho('phongToKhungGia', false);
 let rsiNhomSeries = { ma: [], bb: [] };
 let rsiNhomBat = Object.assign({ma:true, bb:true}, docBoNho('rsiNhom', {}));
+let thangGiaMode = docBoNho('priceScaleMode', 0) === 1 ? 1 : 0; // 0 = Regular, 1 = Logarithmic
 let blMarkers = null;
 let wsH1Auto = null;
 let autoLamMoiLuc = Date.now(); // lần cuối tính lại cobo+EA tự động
@@ -333,6 +334,7 @@ function taoSeries() {
   }
   _applyPhongToBtn();
   _applyRsiNhomBtn();
+  apDungCheDoThangGia();
 }
 
 // ---------- 4. TÍNH CHỈ BÁO ----------
@@ -1076,6 +1078,70 @@ function togglePhongToKhungGia() {
   capNhatLegend(duLieuNen.length - 1);
   capNhatNhanGia();
 }
+
+// ---------- 8d. CHẾ ĐỘ THANG GIÁ (Regular / Logarithmic) ----------
+// Chỉ thang giá của pane nến chính (chart.priceScale('right') = pane 0); RSI và pane khác giữ nguyên.
+// Mọi lớp vẽ riêng (Fib, EA, Co bó) đều lấy y qua series.priceToCoordinate nên tự đúng ở cả hai chế độ.
+function apDungCheDoThangGia() {
+  try { chart.priceScale('right').applyOptions({ mode: thangGiaMode }); } catch (e) {}
+  document.querySelectorAll('#popupThangGia .ptg-item').forEach((it) => {
+    it.classList.toggle('active', Number(it.dataset.mode) === thangGiaMode);
+  });
+  capNhatNutThangGia();
+}
+
+function datCheDoThangGia(m) {
+  thangGiaMode = m === 1 ? 1 : 0;
+  ghiBoNho('priceScaleMode', thangGiaMode);
+  apDungCheDoThangGia();
+  if (fibPrim) fibPrim.update();
+}
+
+// Nút nằm ở góc dưới-trái của cột giá bên phải, ngang hàng thanh trục thời gian
+function capNhatNutThangGia() {
+  const btn = document.getElementById('btnThangGia');
+  if (!btn) return;
+  let scaleW = 0, timeH = 0;
+  try { scaleW = chart.priceScale('right').width(); } catch (e) {}
+  try { timeH = chart.timeScale().height(); } catch (e) {}
+  if (!scaleW) scaleW = 56;
+  if (!timeH) timeH = 26;
+  const h = Math.max(18, Math.min(26, timeH - 4));
+  const w = Math.min(h + 2, Math.max(18, scaleW));
+  btn.style.width = w + 'px';
+  btn.style.height = h + 'px';
+  btn.style.bottom = Math.max(1, Math.round((timeH - h) / 2)) + 'px';
+  const right = Math.max(0, Math.round(scaleW - w) - 2);
+  btn.style.right = right + 'px';
+  const pop = document.getElementById('popupThangGia');
+  if (pop) {
+    pop.style.right = right + 'px';
+    pop.style.bottom = (timeH + 6) + 'px';
+  }
+}
+
+(function () {
+  const btn = document.getElementById('btnThangGia');
+  const pop = document.getElementById('popupThangGia');
+  if (!btn || !pop) return;
+  const dong = () => { pop.style.display = 'none'; btn.classList.remove('active'); };
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const mo = pop.style.display === 'none' || pop.style.display === '';
+    if (mo) { capNhatNutThangGia(); pop.style.display = 'flex'; btn.classList.add('active'); } else dong();
+  });
+  pop.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const it = e.target.closest('.ptg-item');
+    if (!it) return;
+    datCheDoThangGia(Number(it.dataset.mode));
+    dong();
+  });
+  document.addEventListener('click', dong);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') dong(); });
+  try { new ResizeObserver(() => capNhatNutThangGia()).observe(document.getElementById('chart')); } catch (e) {}
+  apDungCheDoThangGia();
+}());
 
 // Tìm vị trí cây nến theo thời gian (tìm nhị phân cho nhanh)
 function timNen(t) {
@@ -2263,6 +2329,7 @@ function tinhKetThucNen() {
 }
 
 function capNhatNhanGia() {
+  capNhatNutThangGia();
   const el = document.getElementById('nhanGia');
   if (!el || !duLieuNen.length) { if (el) el.style.display = 'none'; return; }
 

@@ -5,6 +5,11 @@ Mỗi khi commit có sửa bất kỳ file nào trong repo (app.js, style.css, i
 Dùng định dạng ngày-giờ UTC: YYYYMMDDHHММ (ví dụ `?v=202611051430`).
 KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 
+## Thang giá
+- Nút hình lục giác `#btnThangGia` ở góc dưới-trái cột giá (ngang hàng trục thời gian), menu `#popupThangGia`: Regular (mode 0, mặc định) / Logarithmic (mode 1). `apDungCheDoThangGia()` gọi `chart.priceScale('right').applyOptions({mode})` — chỉ pane nến chính, RSI giữ nguyên. Khóa toàn cục `'sauchart.priceScaleMode'` (0/1), áp lại ở cuối `taoSeries()` nên đổi mã/khung vẫn giữ.
+- Vị trí nút/menu tính trong `capNhatNutThangGia()` từ `priceScale('right').width()` và `timeScale().height()`; gọi từ `capNhatNhanGia()` và `ResizeObserver` trên `#chart`.
+- Mọi lớp vẽ riêng (Fib, EA, Co bó) PHẢI lấy tọa độ y qua `series.priceToCoordinate()` / `coordinateToPrice()`, KHÔNG tự nội suy tuyến tính theo giá, để đúng ở cả hai chế độ.
+
 ## Co bó
 - Zone format: `{s: startMs, e: endMs}` (UTC ms) — dùng `z.s`/`z.e`, KHÔNG phải `z.from`/`z.to`.
 - `COBO_KHUNG` id dùng chữ thường: `h12`, `h8`, `h4`, `h2`, `h1`.

@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" href="icon-180.png" />
   <link rel="manifest" href="manifest.json" />
 
-  <link rel="stylesheet" href="style.css?v=202611200738" />
+  <link rel="stylesheet" href="style.css?v=202611200846" />
   <!-- Thư viện vẽ biểu đồ mã nguồn mở của chính TradingView -->
   <script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -47,6 +47,13 @@
       <div id="popupRsiNhom" class="popup-rsi-nhom" style="display:none">
         <label><input type="checkbox" class="rni-ma"> EMA9 + WMA45</label>
         <label><input type="checkbox" class="rni-bb"> BB20 + BB55</label>
+      </div>
+      <button id="btnThangGia" class="btn-thang-gia" title="Chế độ thang giá" aria-haspopup="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z"/></svg>
+      </button>
+      <div id="popupThangGia" class="popup-thang-gia" style="display:none" role="menu">
+        <div class="ptg-item" data-mode="0" role="menuitemradio"><span class="ptg-tick">✓</span>Regular</div>
+        <div class="ptg-item" data-mode="1" role="menuitemradio"><span class="ptg-tick">✓</span>Logarithmic</div>
       </div>
       <div id="eaVaoPopup" class="ea-vao-popup" style="display:none"></div>
       <div id="fibHint" class="fib-hint" style="display:none">Bấm/chạm điểm 1, rồi bấm/chạm điểm 2. Esc để hủy</div>
@@ -188,14 +195,14 @@
     </div>
   </div>
 
-  <script src="storage.js?v=202611200738"></script>
-  <script src="ea-l5-engine.js?v=202611200738"></script>
-  <script src="ea-l5-data.js?v=202611200738"></script>
-  <script src="ea-f3-engine.js?v=202611200738"></script>
-  <script src="ea-f3-data.js?v=202611200738"></script>
-  <script src="ea-s1-engine.js?v=202611200738"></script>
-  <script src="ea-s1-data.js?v=202611200738"></script>
-  <script src="indicators.js?v=202611200738"></script>
-  <script src="app.js?v=202611200738"></script>
+  <script src="storage.js?v=202611200846"></script>
+  <script src="ea-l5-engine.js?v=202611200846"></script>
+  <script src="ea-l5-data.js?v=202611200846"></script>
+  <script src="ea-f3-engine.js?v=202611200846"></script>
+  <script src="ea-f3-data.js?v=202611200846"></script>
+  <script src="ea-s1-engine.js?v=202611200846"></script>
+  <script src="ea-s1-data.js?v=202611200846"></script>
+  <script src="indicators.js?v=202611200846"></script>
+  <script src="app.js?v=202611200846"></script>
 </body>
 </html>
