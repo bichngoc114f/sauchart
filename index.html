@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" href="icon-180.png" />
   <link rel="manifest" href="manifest.json" />
 
-  <link rel="stylesheet" href="style.css?v=202611200846" />
+  <link rel="stylesheet" href="style.css?v=202611230651" />
   <!-- Thư viện vẽ biểu đồ mã nguồn mở của chính TradingView -->
   <script src="https://unpkg.com/lightweight-charts@5.2.1/dist/lightweight-charts.standalone.production.js"></script>
 </head>
@@ -33,6 +33,7 @@
     <button class="icon-btn" id="btnEA">⚡ EA</button>
     <button class="icon-btn" id="btnCoBo">▦ Co bó</button>
     <button class="icon-btn" id="btnFib">📐 Fib</button>
+    <button class="icon-btn" id="btnVe">✎ Vẽ</button>
     <div class="status" id="status"><span class="dot">●</span><span class="status-text">Đang kết nối...</span></div>
   </header>
 
@@ -58,6 +59,8 @@
       <div id="eaVaoPopup" class="ea-vao-popup" style="display:none"></div>
       <div id="fibHint" class="fib-hint" style="display:none">Bấm/chạm điểm 1, rồi bấm/chạm điểm 2. Esc để hủy</div>
       <button id="fibXoaChon" class="fib-xoa-chon" style="display:none">Xóa</button>
+      <div id="kvHint" class="fib-hint" style="display:none"></div>
+      <div id="kvThanh" class="kv-thanh" style="display:none"></div>
       <div id="nhanGia" style="display:none;position:absolute;right:0;z-index:10;pointer-events:none">
         <div class="ng-gia"></div>
         <div class="ng-dem"></div>
@@ -173,6 +176,26 @@
     </div>
   </div>
 
+  <!-- Menu Kẻ vẽ -->
+  <div class="panel" id="panelVe" hidden>
+    <div class="panel-box">
+      <div class="panel-head">
+        <span>✎ Kẻ vẽ</span>
+        <button class="icon-btn" id="btnDongVe">✕</button>
+      </div>
+      <div class="ve-menu">
+        <div class="ve-item" data-tool="h"><span class="ve-ic">―</span>Đường ngang</div>
+        <div class="ve-item" data-tool="v"><span class="ve-ic">|</span>Đường dọc</div>
+        <div class="ve-item" data-tool="t"><span class="ve-ic">╱</span>Trendline</div>
+        <div class="ve-opts">
+          <label><input type="checkbox" id="veExtR"> Kéo dài sang phải</label>
+          <label><input type="checkbox" id="veExtL"> Kéo dài sang trái</label>
+        </div>
+        <div class="ve-item ve-xoa" id="veXoaTatCa"><span class="ve-ic">✕</span>Xóa tất cả (mã này)</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Bảng Fibonacci -->
   <div class="panel" id="panelFib" hidden>
     <div class="panel-box">
@@ -195,14 +218,14 @@
     </div>
   </div>
 
-  <script src="storage.js?v=202611200846"></script>
-  <script src="ea-l5-engine.js?v=202611200846"></script>
-  <script src="ea-l5-data.js?v=202611200846"></script>
-  <script src="ea-f3-engine.js?v=202611200846"></script>
-  <script src="ea-f3-data.js?v=202611200846"></script>
-  <script src="ea-s1-engine.js?v=202611200846"></script>
-  <script src="ea-s1-data.js?v=202611200846"></script>
-  <script src="indicators.js?v=202611200846"></script>
-  <script src="app.js?v=202611200846"></script>
+  <script src="storage.js?v=202611230651"></script>
+  <script src="ea-l5-engine.js?v=202611230651"></script>
+  <script src="ea-l5-data.js?v=202611230651"></script>
+  <script src="ea-f3-engine.js?v=202611230651"></script>
+  <script src="ea-f3-data.js?v=202611230651"></script>
+  <script src="ea-s1-engine.js?v=202611230651"></script>
+  <script src="ea-s1-data.js?v=202611230651"></script>
+  <script src="indicators.js?v=202611230651"></script>
+  <script src="app.js?v=202611230651"></script>
 </body>
 </html>

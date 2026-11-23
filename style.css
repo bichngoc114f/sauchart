@@ -85,7 +85,7 @@ button { font-family: inherit; }
 /* ===== Bố cục chính ===== */
 .layout { flex: 1; display: flex; min-height: 0; }
 .chart-wrap { flex: 1; position: relative; min-width: 0; }
-#chart { position: absolute; inset: 0; }
+#chart { position: absolute; inset: 0; touch-action: none; }
 
 /* Dòng chú thích O H L C + giá trị chỉ báo */
 .legend {
@@ -672,3 +672,41 @@ button { font-family: inherit; }
   padding: 3px 8px;
   cursor: pointer;
 }
+
+/* ===== Kẻ vẽ: menu + thanh công cụ nét ===== */
+.ve-menu { padding: 4px 0 8px; }
+.ve-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; cursor: pointer; font-size: 13px; color: var(--text); user-select: none;
+}
+.ve-item:hover { background: rgba(255,255,255,0.06); }
+.ve-ic { width: 16px; text-align: center; color: var(--muted); }
+.ve-opts { display: flex; flex-direction: column; gap: 6px; padding: 2px 16px 8px 42px; font-size: 12px; color: var(--muted); }
+.ve-opts label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.ve-xoa { border-top: 1px solid var(--border); margin-top: 4px; color: #ef5350; }
+.ve-xoa .ve-ic { color: #ef5350; }
+
+.kv-thanh {
+  position: absolute; z-index: 22;
+  align-items: center; gap: 4px; padding: 4px 6px;
+  background: rgba(14,16,21,0.96); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  color: var(--text); font-size: 12px; user-select: none; white-space: nowrap;
+}
+.kv-sw { display: inline-flex; padding: 4px; cursor: pointer; }
+.kv-sw i { width: 14px; height: 14px; border-radius: 3px; display: block; }
+.kv-sep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; }
+.kv-b {
+  min-width: 24px; height: 24px; padding: 0 4px;
+  background: transparent; color: var(--muted); border: 1px solid transparent; border-radius: 4px;
+  cursor: pointer; font-size: 12px; line-height: 1;
+}
+.kv-b:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+.kv-b.on { color: #fff; background: var(--accent); }
+.kv-del { color: #ef5350; }
+.kv-pal {
+  position: absolute; top: 100%; left: 0; margin-top: 4px; width: 150px;
+  flex-wrap: wrap; gap: 6px; padding: 8px;
+  background: rgba(14,16,21,0.97); border: 1px solid var(--border); border-radius: 6px;
+}
+.kv-pc { width: 22px; height: 22px; border-radius: 4px; cursor: pointer; display: block; }

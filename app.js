@@ -960,10 +960,13 @@ chart.subscribeCrosshairMove((param) => {
   }
   capNhatLegend(i);
   capNhatNhanGia();
-  // Con trỏ: Fib mode > anchor Fib > mũi tên EA > mặc định
+  // Con trỏ: kẻ vẽ > Fib mode > anchor Fib > mũi tên EA > mặc định
   const _cnv = document.querySelector('#chart canvas');
   if (_cnv) {
-    if (fibBatMode) {
+    const _kvCon = kvConTro(param.point);
+    if (_kvCon) {
+      _cnv.style.cursor = _kvCon;
+    } else if (fibBatMode) {
       _cnv.style.cursor = 'crosshair';
     } else if (param.point && fibSelected && fibAnchorHitTest(param.point.x, param.point.y, 10)) {
       _cnv.style.cursor = 'move';
@@ -979,6 +982,7 @@ chart.subscribeCrosshairMove((param) => {
 // Bấm vào biểu đồ → chọn Fib hoặc hiện popup EA
 chart.subscribeClick((param) => {
   if (fibBatMode) return;
+  if (kvXuLyClick(param)) return; // nét kẻ vẽ được ưu tiên
   if (param.point) {
     const isMob = window.matchMedia('(pointer: coarse)').matches;
     const thr = isMob ? 14 : 8;
@@ -1158,6 +1162,7 @@ function timNen(t) {
 async function napBieuDo() {
   eaVaoDongBang();
   fibTai();
+  kvTai();
   const toi = ++phien;
   dangTaiThem = false;
   daHetLichSu = false;
@@ -2538,6 +2543,17 @@ let fibDragState = null; // { which: 1|2 }
 let _fibDsCache = null;  // { ma, ds }
 let _fibLastHitPrice = null; // giá mức vừa bấm (để tính nhóm hợp lưu)
 
+// --- Kẻ vẽ (đường ngang / dọc / trendline) — state khai báo sớm vì napBieuDo() chạy trước phần code bên dưới ---
+let kvPrim = null;
+let kvMode = null;       // null | 'h' | 'v' | 't' (công cụ đang chọn để vẽ)
+let kvPhase = 0;         // trendline: 0 = chờ điểm 1, 1 = chờ điểm 2
+let kvDangVe = null;     // { k:'t', t1,p1,t2,p2,... } bản xem trước trendline
+let kvSelected = null;   // id nét đang chọn
+let kvDrag = null;       // { loai:'move'|'p1'|'p2', ... }
+let _kvCache = null;     // { ma, ds }
+let kvP1Px = null;       // vị trí pixel điểm 1 (để phân biệt click-click và kéo)
+let kvClickTrong = null; // pointerdown vào vùng trống khi đang có nét được chọn (thả không kéo → bỏ chọn)
+
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsVN() { return !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
 function eaIsF3() { return !eaIsVN() && eaLoai === 'F3'; }
@@ -3442,9 +3458,9 @@ function fibTimeToX(t) {
   const secPerBar = n >= 2 ? (duLieuNen[n - 1].time - duLieuNen[n - 2].time) : 3600;
   if (secPerBar <= 0) return null;
   if (t >= duLieuNen[n - 1].time) {
-    return ts.logicalToCoordinate(n - 1 + (t - duLieuNen[n - 1].time) / secPerBar);
+    return kvLogicalToX(n - 1 + (t - duLieuNen[n - 1].time) / secPerBar);
   }
-  return ts.logicalToCoordinate(0 + (t - duLieuNen[0].time) / secPerBar);
+  return kvLogicalToX(0 + (t - duLieuNen[0].time) / secPerBar);
 }
 
 function fibHopLuuGetOnly() { return docBoNho('fibHopLuu.' + maHienTai, false); }
@@ -3792,6 +3808,7 @@ function fibVaoMode(bat) {
   if (btnFibEl) btnFibEl.classList.toggle('active', bat);
   if (hint) hint.style.display = bat ? '' : 'none';
   if (bat) {
+    if (kvMode) kvVaoMode(null);
     chart.applyOptions({ handleScroll: false, handleScale: false });
     fibSelected = null; fibDiagIds = null;
     fibCapNhatXoaBtn();
@@ -3820,7 +3837,7 @@ function fibVeComplet(x, y) {
 
 // ---------- Sao lưu / khôi phục Fib ra file JSON ----------
 const FIB_MA_HOP_LE = /^[A-Za-z0-9._-]{1,30}$/;
-const FIB_NHOM_LUU = [['fib', 'sauchart.fib.'], ['fibShow', 'sauchart.fibShow.'], ['fibHopLuu', 'sauchart.fibHopLuu.']];
+const FIB_NHOM_LUU = [['fib', 'sauchart.fib.'], ['fibShow', 'sauchart.fibShow.'], ['fibHopLuu', 'sauchart.fibHopLuu.'], ['draw', 'sauchart.draw.']];
 
 function fibDatThongBao(txt) {
   const el = document.getElementById('fibSaoLuuMsg');
@@ -3828,7 +3845,7 @@ function fibDatThongBao(txt) {
 }
 
 function fibSaoLuuFile() {
-  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet() };
+  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, draw: {}, fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet() };
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -3856,8 +3873,8 @@ function fibSaoLuuFile() {
   } else {
     window.open(url, '_blank'); // trình duyệt không hỗ trợ a.download: mở file ở tab mới
   }
-  const nMa = Object.keys(out.fib).length;
-  fibDatThongBao(`Đã tạo ${ten} (${nMa} mã). Trên iPad: mở file qua Chia sẻ / Lưu vào Tệp nếu cần.`);
+  const nMa = new Set([...Object.keys(out.fib), ...Object.keys(out.draw)]).size;
+  fibDatThongBao(`Đã tạo ${ten} (${nMa} mã, gồm Fib và nét kẻ vẽ). Trên iPad: mở file qua Chia sẻ / Lưu vào Tệp nếu cần.`);
 }
 
 // Trả về { fib, fibShow, fibHopLuu } đã làm sạch, hoặc chuỗi báo lỗi
@@ -3884,7 +3901,20 @@ function fibKiemTraSaoLuu(data) {
       kq.fib[ma].push(o);
     }
   }
-  if (!Object.keys(kq.fib).length) return 'file không chứa Fib nào.';
+  kq.draw = {};
+  if (data.draw !== undefined) {
+    if (!laObj(data.draw)) return 'mục draw (nét kẻ vẽ) không hợp lệ.';
+    for (const ma of Object.keys(data.draw)) {
+      if (!FIB_MA_HOP_LE.test(ma) || !Array.isArray(data.draw[ma])) return `nét kẻ vẽ của "${ma}" không hợp lệ.`;
+      kq.draw[ma] = [];
+      for (const l of data.draw[ma]) {
+        const o = kvChuanHoa(l);
+        if (!o) return `có nét kẻ vẽ thiếu hoặc sai trường (mã ${ma}).`;
+        kq.draw[ma].push(o);
+      }
+    }
+  }
+  if (!Object.keys(kq.fib).length && !Object.keys(kq.draw).length) return 'file không chứa Fib hay nét vẽ nào.';
   for (const truong of ['fibShow', 'fibHopLuu']) {
     if (data[truong] === undefined) continue;
     if (!laObj(data[truong])) return `mục ${truong} không hợp lệ.`;
@@ -3913,14 +3943,16 @@ function fibKhoiPhucFile(file) {
     try { data = JSON.parse(rd.result); } catch (e) { return loi('file không phải JSON hợp lệ.'); }
     const kq = fibKiemTraSaoLuu(data);
     if (typeof kq === 'string') return loi(kq);
-    if (!confirm('Khôi phục sẽ thay các Fib hiện tại của mã có trong file. Tiếp tục?')) return;
+    if (!confirm('Khôi phục sẽ thay các Fib và nét vẽ hiện tại của mã có trong file. Tiếp tục?')) return;
     for (const ma of Object.keys(kq.fib)) ghiBoNho('fib.' + ma, kq.fib[ma]);
     for (const ma of Object.keys(kq.fibShow)) ghiBoNho('fibShow.' + ma, kq.fibShow[ma]);
     for (const ma of Object.keys(kq.fibHopLuu)) ghiBoNho('fibHopLuu.' + ma, kq.fibHopLuu[ma]);
+    for (const ma of Object.keys(kq.draw)) ghiBoNho('draw.' + ma, kq.draw[ma]);
     if (kq.fibAlpha !== undefined) ghiBoNho('fibAlpha', kq.fibAlpha);
     if (kq.fibNhan !== undefined) ghiBoNho('fibNhan', kq.fibNhan);
     fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
-    fibDatThongBao(`Đã khôi phục Fib cho ${Object.keys(kq.fib).length} mã.`);
+    kvTai();
+    fibDatThongBao(`Đã khôi phục Fib cho ${Object.keys(kq.fib).length} mã và nét vẽ cho ${Object.keys(kq.draw).length} mã.`);
   };
   rd.readAsText(file);
 }
@@ -4324,8 +4356,622 @@ function fibKhoiDong() {
   if (btnXoaChon) btnXoaChon.onclick = fibXoaChon;
 }
 
+// ==================== KẺ VẼ: ĐƯỜNG NGANG / ĐƯỜNG DỌC / TRENDLINE ====================
+// Lưu (time, price) gốc theo mã ('sauchart.draw.<MA>'), dùng chung mọi khung giờ; tọa độ y luôn qua
+// series.priceToCoordinate (đúng cả Regular lẫn Logarithmic); tọa độ x qua kvTimeToX (xem bên dưới).
+// Nét: { id, k:'h'|'v'|'t', t1?, p1?, t2?, p2?, mau, w:1|2|3, ls:'solid'|'dash', extR?, extL? }
+
+function kvOpt() {
+  const o = docBoNho('veTuyChon', {});
+  return { extR: !!(o && o.extR === true), extL: !!(o && o.extL === true) };
+}
+
+function kvChuanHoa(l) {
+  const so = (v) => typeof v === 'number' && isFinite(v);
+  if (!l || typeof l !== 'object' || typeof l.id !== 'string' || !l.id) return null;
+  if (l.k !== 'h' && l.k !== 'v' && l.k !== 't') return null;
+  const o = {
+    id: l.id, k: l.k,
+    mau: fibMauHopLe(l.mau) ? l.mau.toLowerCase() : FIB_BANG_MAU[0],
+    w: (l.w === 1 || l.w === 2 || l.w === 3) ? l.w : 1,
+    ls: l.ls === 'dash' ? 'dash' : 'solid',
+  };
+  if (l.k === 'h') { if (!so(l.p1)) return null; o.p1 = l.p1; }
+  else if (l.k === 'v') { if (!so(l.t1)) return null; o.t1 = l.t1; }
+  else {
+    if (![l.t1, l.p1, l.t2, l.p2].every(so)) return null;
+    o.t1 = l.t1; o.p1 = l.p1; o.t2 = l.t2; o.p2 = l.p2;
+    o.extR = l.extR === true; o.extL = l.extL === true;
+  }
+  return o;
+}
+
+function kvLayDS() {
+  if (_kvCache && _kvCache.ma === maHienTai) return _kvCache.ds;
+  let ds = [];
+  try { ds = docBoNho('draw.' + maHienTai, []); } catch (e) {}
+  if (!Array.isArray(ds)) ds = [];
+  ds = ds.map(kvChuanHoa).filter(Boolean);
+  _kvCache = { ma: maHienTai, ds };
+  return ds;
+}
+function kvLuuDS(ds) {
+  _kvCache = { ma: maHienTai, ds };
+  ghiBoNho('draw.' + maHienTai, ds);
+}
+function kvTim(id) { return id ? kvLayDS().find((l) => l.id === id) || null : null; }
+
+// ---------- Tọa độ ----------
+// x của một thời điểm: dùng timeToIndex(t, true) + logicalToCoordinate; nội suy phân số giữa 2 nến
+// (đổi khung giờ vẫn đúng chỗ) và ngoại suy khi t nằm ngoài dữ liệu. Trả null khi chưa có nến.
+// logicalToCoordinate chỉ đúng với chỉ số NGUYÊN (chỉ số lẻ trả 0) → nội suy tuyến tính giữa 2 chỉ số nguyên
+function kvLogicalToX(idx) {
+  const ts = chart.timeScale();
+  const i = Math.floor(idx), f = idx - i;
+  const a = ts.logicalToCoordinate(i);
+  if (a == null || f < 1e-9) return a;
+  const b = ts.logicalToCoordinate(i + 1);
+  return b == null ? a : a + f * (b - a);
+}
+function kvTimeToX(t) {
+  const n = duLieuNen.length;
+  if (!n) return null;
+  const ts = chart.timeScale();
+  const first = duLieuNen[0].time, last = duLieuNen[n - 1].time;
+  const spb = n >= 2 ? Math.max(1, last - duLieuNen[n - 2].time) : 86400;
+  const spb0 = n >= 2 ? Math.max(1, duLieuNen[1].time - first) : 86400;
+  let idx;
+  if (t >= last) idx = (n - 1) + (t - last) / spb;
+  else if (t <= first) idx = (t - first) / spb0;
+  else {
+    let i = ts.timeToIndex(t, true);
+    if (i == null) return null;
+    if (i >= n - 1) i = n - 2;
+    if (duLieuNen[i].time > t) i--;
+    if (i < 0) i = 0;
+    const a = duLieuNen[i].time, b = duLieuNen[i + 1].time;
+    idx = i + (t - a) / Math.max(1, b - a);
+  }
+  return kvLogicalToX(idx);
+}
+// Thời điểm (snap vào nến gần nhất, ngoại suy theo độ dài nến khi click vùng trống bên phải/trái)
+function kvXToTime(x) {
+  const n = duLieuNen.length;
+  if (!n) return 0;
+  const first = duLieuNen[0].time, last = duLieuNen[n - 1].time;
+  const l = chart.timeScale().coordinateToLogical(x);
+  if (l == null) return last;
+  const i = Math.round(l);
+  if (i < 0) return first + i * (n >= 2 ? Math.max(1, duLieuNen[1].time - first) : 86400);
+  if (i >= n) return last + (i - (n - 1)) * (n >= 2 ? Math.max(1, last - duLieuNen[n - 2].time) : 86400);
+  return duLieuNen[i].time;
+}
+function kvXYToAnchor(x, y) {
+  const p = nenSeries.coordinateToPrice(y);
+  if (p == null || !isFinite(p)) return null;
+  return { t: kvXToTime(x), p };
+}
+function kvToaDo(ln) {
+  return {
+    x1: ln.t1 != null ? kvTimeToX(ln.t1) : null,
+    y1: ln.p1 != null ? nenSeries.priceToCoordinate(ln.p1) : null,
+    x2: ln.t2 != null ? kvTimeToX(ln.t2) : null,
+    y2: ln.p2 != null ? nenSeries.priceToCoordinate(ln.p2) : null,
+  };
+}
+// Đoạn thẳng của trendline sau khi kéo dài sang trái/phải (cùng đơn vị với đầu vào; W = bề rộng vùng vẽ)
+function kvTrendSeg(x1, y1, x2, y2, eL, eR, W) {
+  let ax = x1, ay = y1, bx = x2, by = y2;
+  if (ax > bx) { ax = x2; ay = y2; bx = x1; by = y1; }
+  const dx = bx - ax;
+  if (Math.abs(dx) < 1e-6) return [ax, ay, bx, by];
+  const m = (by - ay) / dx;
+  let nx1 = ax, ny1 = ay, nx2 = bx, ny2 = by;
+  if (eR) { nx2 = Math.max(W, bx); ny2 = ay + m * (nx2 - ax); }
+  if (eL) { nx1 = Math.min(0, ax); ny1 = ay + m * (nx1 - ax); }
+  return [nx1, ny1, nx2, ny2];
+}
+function kvKcDoan(px, py, s) {
+  const dx = s[2] - s[0], dy = s[3] - s[1];
+  const L2 = dx * dx + dy * dy;
+  let t = L2 ? ((px - s[0]) * dx + (py - s[1]) * dy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s[0] + t * dx), py - (s[1] + t * dy));
+}
+
+// ---------- Hit-test (CSS px) ----------
+function kvThr() { return window.matchMedia('(pointer: coarse)').matches ? 12 : 6; }
+function kvTrongVung(x, y) {
+  try {
+    const pw = chart.timeScale().width();
+    const ph = chart.panes()[0].getHeight();
+    return x >= 0 && y >= 0 && x <= pw && y <= ph;
+  } catch (e) { return false; }
+}
+function kvHitTest(x, y, thr) {
+  const ds = kvLayDS();
+  const W = document.getElementById('chart').clientWidth;
+  for (let i = ds.length - 1; i >= 0; i--) {
+    const ln = ds[i], c = kvToaDo(ln);
+    if (ln.k === 'h') { if (c.y1 != null && Math.abs(y - c.y1) <= thr) return ln.id; }
+    else if (ln.k === 'v') { if (c.x1 != null && Math.abs(x - c.x1) <= thr) return ln.id; }
+    else if (c.x1 != null && c.y1 != null && c.x2 != null && c.y2 != null) {
+      const s = kvTrendSeg(c.x1, c.y1, c.x2, c.y2, ln.extL, ln.extR, W);
+      if (kvKcDoan(x, y, s) <= thr) return ln.id;
+    }
+  }
+  return null;
+}
+function kvAnchorHit(ln, x, y, thr) {
+  if (!ln || ln.k !== 't') return null;
+  const c = kvToaDo(ln);
+  if (c.x1 != null && c.y1 != null && Math.hypot(x - c.x1, y - c.y1) <= thr) return 'p1';
+  if (c.x2 != null && c.y2 != null && Math.hypot(x - c.x2, y - c.y2) <= thr) return 'p2';
+  return null;
+}
+function kvConTro(pt) {
+  if (kvMode) return 'crosshair';
+  if (kvDrag) return 'move';
+  if (!kvPrim || !pt || !kvTrongVung(pt.x, pt.y)) return null;
+  if (!kvLayDS().length) return null;
+  const thr = kvThr();
+  const sel = kvTim(kvSelected);
+  if (sel && kvAnchorHit(sel, pt.x, pt.y, thr + 4)) return 'move';
+  const id = kvHitTest(pt.x, pt.y, thr);
+  return id ? (id === kvSelected ? 'move' : 'pointer') : null;
+}
+
+// ---------- Vẽ ----------
+function kvMauChu(mau) {
+  const n = parseInt(mau.slice(1), 16);
+  const lum = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.55 ? '#1d1f28' : '#ffffff';
+}
+function kvFmtThoiGian(t) {
+  const d = new Date(t * 1000); // t = giây UTC + LECH_GIO nên các trường UTC chính là giờ VN
+  const p = (n) => String(n).padStart(2, '0');
+  const ngay = `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${String(d.getUTCFullYear()).slice(2)}`;
+  return (d.getUTCHours() === 0 && d.getUTCMinutes() === 0) ? ngay : `${ngay} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+function kvTrucView(coord, text, mau) {
+  return { coordinate: () => coord, text: () => text, textColor: () => kvMauChu(mau), backColor: () => mau, visible: () => true, tickVisible: () => true };
+}
+
+function kvVeNet(ctx, ln, hpr, vpr, W, H, sel, xemTruoc) {
+  const c = kvToaDo(ln);
+  ctx.save();
+  ctx.globalAlpha = xemTruoc ? 0.6 : 1;
+  ctx.strokeStyle = ln.mau;
+  ctx.lineWidth = ((ln.w || 1) + (sel ? 1 : 0)) * hpr;
+  ctx.lineCap = 'butt';
+  ctx.setLineDash(ln.ls === 'dash' ? [6 * hpr, 4 * hpr] : []);
+  ctx.beginPath();
+  let ve = false;
+  if (ln.k === 'h') {
+    if (c.y1 != null) { ctx.moveTo(0, c.y1 * vpr); ctx.lineTo(W, c.y1 * vpr); ve = true; }
+  } else if (ln.k === 'v') {
+    if (c.x1 != null) { ctx.moveTo(c.x1 * hpr, 0); ctx.lineTo(c.x1 * hpr, H); ve = true; }
+  } else if (c.x1 != null && c.y1 != null && c.x2 != null && c.y2 != null) {
+    const s = kvTrendSeg(c.x1 * hpr, c.y1 * vpr, c.x2 * hpr, c.y2 * vpr, ln.extL, ln.extR, W);
+    ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); ve = true;
+  }
+  if (ve) ctx.stroke();
+  if (sel && ln.k === 't' && ve) {
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    for (const [x, y] of [[c.x1, c.y1], [c.x2, c.y2]]) {
+      ctx.beginPath();
+      ctx.arc(x * hpr, y * vpr, 5 * hpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = ln.mau;
+      ctx.lineWidth = 2 * hpr;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+class KeVePrimitive {
+  constructor() { this._series = null; this._chart = null; this._req = null; this._pv = []; this._tv = []; }
+  attached(p) { this._series = p.series; this._chart = p.chart; this._req = p.requestUpdate; }
+  detached() { this._series = null; this._chart = null; this._req = null; }
+  update() { if (this._req) this._req(); }
+
+  updateAllViews() {
+    this._pv = []; this._tv = [];
+    if (!this._series || !this._chart) return;
+    try {
+      const H = this._chart.panes()[0].getHeight();
+      const W = this._chart.timeScale().width();
+      for (const ln of kvLayDS()) {
+        if (ln.k === 'h') {
+          const y = this._series.priceToCoordinate(ln.p1);
+          if (y != null && y >= 0 && y <= H) this._pv.push(kvTrucView(y, dinhDangGia(ln.p1), ln.mau));
+        } else if (ln.k === 'v') {
+          const x = kvTimeToX(ln.t1);
+          if (x != null && x >= 0 && x <= W) this._tv.push(kvTrucView(x, kvFmtThoiGian(ln.t1), ln.mau));
+        }
+      }
+    } catch (e) {}
+    kvCapNhatThanh();
+  }
+  priceAxisViews() { return this._pv; }
+  timeAxisViews() { return this._tv; }
+
+  paneViews() {
+    return [{
+      renderer() {
+        return {
+          draw(target) {
+            const ds = kvLayDS();
+            if (!ds.length && !kvDangVe) return;
+            target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
+              const W = bitmapSize.width, H = bitmapSize.height;
+              for (const ln of ds) {
+                try { kvVeNet(ctx, ln, hpr, vpr, W, H, ln.id === kvSelected, false); } catch (e) {}
+              }
+              if (kvDangVe) { try { kvVeNet(ctx, kvDangVe, hpr, vpr, W, H, false, true); } catch (e) {} }
+            });
+          },
+        };
+      },
+    }];
+  }
+}
+
+// ---------- Thao tác ----------
+function kvNetMacDinh() {
+  const o = kvOpt();
+  return { mau: FIB_BANG_MAU[0], w: 1, ls: 'solid', extR: o.extR, extL: o.extL };
+}
+function kvCapNhatCuon() {
+  const khoa = !!(fibBatMode || kvMode || kvDrag || fibDragState);
+  chart.applyOptions({ handleScroll: !khoa, handleScale: !khoa });
+}
+function kvCapNhatNut() {
+  const b = document.getElementById('btnVe');
+  if (b) b.classList.toggle('active', !!kvMode);
+  const hint = document.getElementById('kvHint');
+  if (hint) {
+    const t = { h: 'Bấm 1 lần để đặt đường ngang. Esc để hủy', v: 'Bấm 1 lần để đặt đường dọc. Esc để hủy',
+      t: 'Bấm điểm 1, rồi điểm 2 (giữ Shift để khóa ngang/dọc). Esc để hủy' }[kvMode];
+    hint.textContent = t || '';
+    hint.style.display = t ? '' : 'none';
+  }
+}
+function kvVaoMode(tool) {
+  if (tool && fibBatMode) fibVaoMode(false);
+  kvMode = tool || null;
+  kvPhase = 0; kvDangVe = null; kvP1Px = null;
+  if (tool) { eaVaoDongBang(); kvBoChon(); fibSelected = null; fibDiagIds = null; fibCapNhatXoaBtn(); if (fibPrim) fibPrim.update(); }
+  kvCapNhatCuon();
+  kvCapNhatNut();
+  const c = document.querySelector('#chart canvas');
+  if (c) c.style.cursor = tool ? 'crosshair' : '';
+  if (kvPrim) kvPrim.update();
+}
+function kvChon(id) {
+  kvSelected = id;
+  if (id) { fibSelected = null; fibDiagIds = null; fibCapNhatXoaBtn(); if (fibPrim) fibPrim.update(); }
+  kvVeThanh();
+  if (kvPrim) kvPrim.update();
+}
+function kvBoChon() {
+  if (kvSelected == null) return;
+  kvSelected = null;
+  kvVeThanh();
+  if (kvPrim) kvPrim.update();
+}
+function kvTao(props) {
+  const ds = kvLayDS();
+  const ln = kvChuanHoa(Object.assign({ id: fibMoiId() }, kvNetMacDinh(), props));
+  if (!ln) return;
+  ds.push(ln);
+  kvLuuDS(ds);
+  kvVaoMode(null);
+  kvChon(ln.id);
+}
+function kvXoa(id) {
+  kvLuuDS(kvLayDS().filter((l) => l.id !== id));
+  if (kvSelected === id) kvSelected = null;
+  kvVeThanh();
+  if (kvPrim) kvPrim.update();
+}
+function kvSua(id, patch) {
+  const ds = kvLayDS();
+  const ln = ds.find((l) => l.id === id);
+  if (!ln) return;
+  Object.assign(ln, patch);
+  kvLuuDS(ds);
+  kvVeThanh();
+  if (kvPrim) kvPrim.update();
+}
+// Gọi từ napBieuDo()/khôi phục: đọc lại dữ liệu mã hiện tại, thoát chế độ vẽ, bỏ chọn
+function kvTai() {
+  _kvCache = null;
+  kvMode = null; kvPhase = 0; kvDangVe = null; kvP1Px = null; kvDrag = null; kvSelected = null;
+  if (!kvPrim) return;
+  kvCapNhatCuon();
+  kvCapNhatNut();
+  kvVeThanh();
+  kvPrim.update();
+}
+function kvXuLyClick(param) {
+  if (kvMode) return true;
+  if (!kvPrim || !param.point) return false;
+  const { x, y } = param.point;
+  if (kvTrongVung(x, y)) {
+    const id = kvHitTest(x, y, kvThr());
+    if (id) { if (kvSelected !== id) kvChon(id); eaVaoDongBang(); return true; }
+  }
+  if (kvSelected) kvBoChon();
+  return false;
+}
+
+// Shift khi vẽ trendline: khóa ngang hoặc dọc theo hướng lệch nhiều hơn
+function kvAnchorTrend(x, y, shift) {
+  const a = kvXYToAnchor(x, y);
+  if (!a || !shift || !kvDangVe) return a;
+  const x1 = kvTimeToX(kvDangVe.t1), y1 = nenSeries.priceToCoordinate(kvDangVe.p1);
+  if (x1 == null || y1 == null) return a;
+  return Math.abs(x - x1) >= Math.abs(y - y1) ? { t: a.t, p: kvDangVe.p1 } : { t: kvDangVe.t1, p: a.p };
+}
+function kvHoanTat(x, y, shift) {
+  if (!kvDangVe) return;
+  const a = kvAnchorTrend(x, y, shift);
+  if (!a) return;
+  const x1 = kvTimeToX(kvDangVe.t1), y1 = nenSeries.priceToCoordinate(kvDangVe.p1);
+  const x2 = kvTimeToX(a.t), y2 = nenSeries.priceToCoordinate(a.p);
+  if (x1 != null && y1 != null && x2 != null && y2 != null && Math.hypot(x2 - x1, y2 - y1) < 3) return; // 2 điểm trùng nhau
+  kvTao({ k: 't', t1: kvDangVe.t1, p1: kvDangVe.p1, t2: a.t, p2: a.p });
+}
+
+function kvOnPointerDown(e) {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const { x, y } = fibGetXY(e);
+  if (kvMode) {
+    if (!kvTrongVung(x, y)) return;
+    if (kvMode === 'h' || kvMode === 'v') {
+      const a = kvXYToAnchor(x, y);
+      if (a) kvTao(kvMode === 'h' ? { k: 'h', p1: a.p } : { k: 'v', t1: a.t });
+    } else if (kvPhase === 0) {
+      const a = kvXYToAnchor(x, y);
+      if (a) {
+        kvDangVe = Object.assign({ id: '__prev__', k: 't', t1: a.t, p1: a.p, t2: a.t, p2: a.p }, kvNetMacDinh());
+        kvPhase = 1;
+        kvP1Px = { x: e.clientX, y: e.clientY };
+        if (kvPrim) kvPrim.update();
+      }
+    } else {
+      kvHoanTat(x, y, e.shiftKey);
+    }
+    e.preventDefault(); e.stopPropagation();
+    return;
+  }
+  if (!kvPrim || !kvTrongVung(x, y)) return;
+  const thr = kvThr();
+  let ln = kvTim(kvSelected);
+  let loai = ln ? kvAnchorHit(ln, x, y, thr + 4) : null;
+  if (!loai) {
+    const id = kvHitTest(x, y, thr);
+    if (!id) { if (kvSelected) kvClickTrong = { x: e.clientX, y: e.clientY }; return; }
+    ln = kvTim(id);
+    if (kvSelected !== id) kvChon(id);
+    loai = 'move';
+  }
+  kvDrag = { loai, id: ln.id, x0: x, y0: y, px: kvToaDo(ln), moved: false };
+  kvCapNhatCuon();
+  e.preventDefault(); e.stopPropagation();
+}
+
+function kvOnPointerMove(e) {
+  if (kvDrag) {
+    const { x, y } = fibGetXY(e);
+    const d = kvDrag;
+    if (!d.moved && Math.hypot(x - d.x0, y - d.y0) < 3) return;
+    d.moved = true;
+    const ln = kvTim(d.id);
+    if (!ln) return;
+    if (d.loai === 'move') {
+      const dx = x - d.x0, dy = y - d.y0;
+      if (ln.k === 'h') {
+        const p = d.px.y1 != null ? nenSeries.coordinateToPrice(d.px.y1 + dy) : null;
+        if (p != null && isFinite(p)) ln.p1 = p;
+      } else if (ln.k === 'v') {
+        if (d.px.x1 != null) ln.t1 = kvXToTime(d.px.x1 + dx);
+      } else if ([d.px.x1, d.px.y1, d.px.x2, d.px.y2].every((v) => v != null)) {
+        const p1 = nenSeries.coordinateToPrice(d.px.y1 + dy), p2 = nenSeries.coordinateToPrice(d.px.y2 + dy);
+        if (p1 != null && p2 != null) {
+          ln.t1 = kvXToTime(d.px.x1 + dx); ln.p1 = p1;
+          ln.t2 = kvXToTime(d.px.x2 + dx); ln.p2 = p2;
+        }
+      }
+    } else {
+      const a = kvXYToAnchor(x, y);
+      if (a) {
+        if (d.loai === 'p1') { ln.t1 = a.t; ln.p1 = a.p; } else { ln.t2 = a.t; ln.p2 = a.p; }
+      }
+    }
+    if (kvPrim) kvPrim.update();
+    e.preventDefault();
+    return;
+  }
+  if (kvMode === 't' && kvPhase === 1 && kvDangVe) {
+    const { x, y } = fibGetXY(e);
+    const a = kvAnchorTrend(x, y, e.shiftKey);
+    if (a) { kvDangVe.t2 = a.t; kvDangVe.p2 = a.p; if (kvPrim) kvPrim.update(); }
+  }
+}
+
+function kvOnPointerUp(e) {
+  if (kvClickTrong) {
+    // click vào vùng trống (không kéo chart) → bỏ chọn; không phụ thuộc sự kiện click của thư viện biểu đồ
+    if (Math.hypot(e.clientX - kvClickTrong.x, e.clientY - kvClickTrong.y) < 5) kvBoChon();
+    kvClickTrong = null;
+  }
+  if (kvDrag) {
+    if (kvDrag.moved) kvLuuDS(kvLayDS());
+    kvDrag = null;
+    kvCapNhatCuon();
+    return;
+  }
+  if (kvMode === 't' && kvPhase === 1 && kvP1Px) {
+    // kéo từ điểm 1 sang điểm 2 rồi thả = hoàn tất; chỉ click (không kéo) thì chờ click điểm 2
+    if (Math.hypot(e.clientX - kvP1Px.x, e.clientY - kvP1Px.y) > 5) {
+      const { x, y } = fibGetXY(e);
+      kvHoanTat(x, y, e.shiftKey);
+    }
+    kvP1Px = null;
+  }
+}
+
+function kvOnPointerCancel() {
+  if (kvDrag) { _kvCache = null; kvDrag = null; kvCapNhatCuon(); if (kvPrim) kvPrim.update(); }
+  if (kvMode === 't' && kvPhase === 1) { kvDangVe = null; kvPhase = 0; kvP1Px = null; if (kvPrim) kvPrim.update(); }
+}
+
+function kvOnKeyDown(e) {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (e.key === 'Escape') {
+    if (kvMode) kvVaoMode(null);
+    else if (kvSelected) kvBoChon();
+    return;
+  }
+  if (kvSelected && !kvMode && (e.key === 'Delete' || e.key === 'Backspace')) {
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    kvXoa(kvSelected);
+    e.preventDefault();
+  }
+}
+
+// ---------- Thanh công cụ nhỏ gần nét đang chọn ----------
+function kvVeThanh() {
+  const el = document.getElementById('kvThanh');
+  if (!el) return;
+  const ln = kvTim(kvSelected);
+  if (!ln) { el.style.display = 'none'; return; }
+  let h = `<span class="kv-sw" title="Màu"><i style="background:${ln.mau}"></i></span>`;
+  h += `<span class="kv-sep"></span>`;
+  h += [1, 2, 3].map((w) => `<button class="kv-b${ln.w === w ? ' on' : ''}" data-w="${w}" title="Độ dày ${w}px">${w}</button>`).join('');
+  h += `<span class="kv-sep"></span>`;
+  h += `<button class="kv-b${ln.ls === 'solid' ? ' on' : ''}" data-ls="solid" title="Nét liền">━</button>`;
+  h += `<button class="kv-b${ln.ls === 'dash' ? ' on' : ''}" data-ls="dash" title="Nét đứt">┅</button>`;
+  if (ln.k === 't') {
+    h += `<span class="kv-sep"></span>`;
+    h += `<button class="kv-b${ln.extL ? ' on' : ''}" data-ext="extL" title="Kéo dài sang trái">⇤</button>`;
+    h += `<button class="kv-b${ln.extR ? ' on' : ''}" data-ext="extR" title="Kéo dài sang phải">⇥</button>`;
+  }
+  h += `<span class="kv-sep"></span><button class="kv-b kv-del" data-xoa="1" title="Xóa nét này">✕</button>`;
+  h += `<div class="kv-pal" style="display:none">` +
+    FIB_BANG_MAU.map((m) => `<span class="kv-pc" data-mau="${m}" style="background:${m}${m === ln.mau ? ';outline:2px solid #fff;outline-offset:1px' : ''}"></span>`).join('') +
+    `</div>`;
+  el.innerHTML = h;
+  el.style.display = 'flex';
+  kvCapNhatThanh();
+}
+
+function kvCapNhatThanh() {
+  const el = document.getElementById('kvThanh');
+  if (!el || el.style.display === 'none') return;
+  const ln = kvTim(kvSelected);
+  if (!ln) { el.style.display = 'none'; return; }
+  try {
+    const cw = document.getElementById('chart').clientWidth;
+    const H = chart.panes()[0].getHeight();
+    const bw = el.offsetWidth || 220, bh = el.offsetHeight || 30;
+    const c = kvToaDo(ln);
+    let ax, ay;
+    if (ln.k === 'h' && c.y1 != null) { ax = cw - bw - 90; ay = c.y1 - bh - 10; if (ay < 4) ay = c.y1 + 10; }
+    else if (ln.k === 'v' && c.x1 != null) { ax = c.x1 + 10; ay = 10; }
+    else if (ln.k === 't' && c.x1 != null && c.x2 != null && c.y1 != null && c.y2 != null) {
+      ax = (c.x1 + c.x2) / 2 - bw / 2; ay = Math.min(c.y1, c.y2) - bh - 12;
+      if (ay < 4) ay = Math.max(c.y1, c.y2) + 12;
+    } else { ax = 8; ay = 8; }
+    ax = Math.max(4, Math.min(ax, cw - bw - 70));
+    ay = Math.max(4, Math.min(ay, H - bh - 4));
+    el.style.left = Math.round(ax) + 'px';
+    el.style.top = Math.round(ay) + 'px';
+  } catch (e) {}
+}
+
+function kvKhoiDong() {
+  kvPrim = new KeVePrimitive();
+  nenSeries.attachPrimitive(kvPrim); // gắn sau Fib → nằm trên Fib, dưới các popup DOM
+
+  const chartEl = document.getElementById('chart');
+  chartEl.addEventListener('pointerdown', kvOnPointerDown, true); // capture: chạy trước thao tác kéo chart
+  window.addEventListener('pointermove', kvOnPointerMove);
+  window.addEventListener('pointerup', kvOnPointerUp);
+  window.addEventListener('pointercancel', kvOnPointerCancel);
+  document.addEventListener('keydown', kvOnKeyDown);
+
+  // Thanh công cụ nhỏ
+  const bar = document.getElementById('kvThanh');
+  if (bar) bar.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const id = kvSelected;
+    const t = e.target.closest('[data-w],[data-ls],[data-ext],[data-xoa],.kv-sw,.kv-pc');
+    if (!t || !id) return;
+    const ln = kvTim(id);
+    if (!ln) return;
+    if (t.dataset.w) kvSua(id, { w: Number(t.dataset.w) });
+    else if (t.dataset.ls) kvSua(id, { ls: t.dataset.ls });
+    else if (t.dataset.ext) kvSua(id, { [t.dataset.ext]: !ln[t.dataset.ext] });
+    else if (t.dataset.xoa) kvXoa(id);
+    else if (t.classList.contains('kv-pc')) kvSua(id, { mau: t.dataset.mau });
+    else if (t.classList.contains('kv-sw')) {
+      const pal = bar.querySelector('.kv-pal');
+      if (pal) pal.style.display = pal.style.display === 'none' ? 'flex' : 'none';
+    }
+  });
+
+  // Nút "Vẽ" + menu
+  const btn = document.getElementById('btnVe');
+  const panel = document.getElementById('panelVe');
+  if (btn && panel) {
+    const o = kvOpt();
+    const chkR = document.getElementById('veExtR'), chkL = document.getElementById('veExtL');
+    if (chkR) chkR.checked = o.extR;
+    if (chkL) chkL.checked = o.extL;
+    const luuOpt = () => ghiBoNho('veTuyChon', { extR: !!(chkR && chkR.checked), extL: !!(chkL && chkL.checked) });
+    if (chkR) chkR.onchange = luuOpt;
+    if (chkL) chkL.onchange = luuOpt;
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (kvMode) { kvVaoMode(null); return; } // bấm lại nút để hủy chế độ vẽ
+      panel.hidden = !panel.hidden;
+    });
+    panel.querySelectorAll('.ve-item[data-tool]').forEach((it) => {
+      it.onclick = () => { panel.hidden = true; kvVaoMode(it.dataset.tool); };
+    });
+    const xoaTatCa = document.getElementById('veXoaTatCa');
+    if (xoaTatCa) xoaTatCa.onclick = () => {
+      const n = kvLayDS().length;
+      if (!n) { alert('Mã này chưa có nét vẽ nào.'); return; }
+      if (!confirm(`Xóa tất cả ${n} nét vẽ của ${maHienTai}?`)) return;
+      kvLuuDS([]);
+      kvSelected = null;
+      kvVeThanh();
+      if (kvPrim) kvPrim.update();
+      panel.hidden = true;
+    };
+    const dong = document.getElementById('btnDongVe');
+    if (dong) dong.onclick = () => { panel.hidden = true; };
+    document.addEventListener('click', (e) => {
+      if (panel.hidden) return;
+      const trong = e.composedPath ? e.composedPath().includes(panel) : panel.contains(e.target);
+      if (!trong && e.target !== btn) panel.hidden = true;
+    });
+  }
+  kvCapNhatNut();
+  kvPrim.update();
+}
+
 fibKhoiDong();
+kvKhoiDong();
 
 // storage.js gọi khi vừa khôi phục dữ liệu Fib từ IndexedDB sau khi app đã chạy
-window.sauFibKhoiPhuc = function () { fibTai(); fibCapNhatLocHL(); };
+window.sauFibKhoiPhuc = function () { fibTai(); fibCapNhatLocHL(); kvTai(); };
 window.sauAppChay = true;

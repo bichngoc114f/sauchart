@@ -10,6 +10,14 @@ KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 - Vị trí nút/menu tính trong `capNhatNutThangGia()` từ `priceScale('right').width()` và `timeScale().height()`; gọi từ `capNhatNhanGia()` và `ResizeObserver` trên `#chart`.
 - Mọi lớp vẽ riêng (Fib, EA, Co bó) PHẢI lấy tọa độ y qua `series.priceToCoordinate()` / `coordinateToPrice()`, KHÔNG tự nội suy tuyến tính theo giá, để đúng ở cả hai chế độ.
 
+## Kẻ vẽ (đường ngang / đường dọc / trendline)
+- Nút `#btnVe` ("✎ Vẽ", cạnh nút Fib) mở menu `#panelVe`: Đường ngang, Đường dọc, Trendline (+ tùy chọn mặc định "Kéo dài sang phải/trái" cho trendline mới, khóa `'sauchart.veTuyChon'`), "Xóa tất cả (mã này)". Chọn công cụ → `kvVaoMode()`; Esc hoặc bấm lại nút để hủy; vẽ xong tự thoát chế độ (mỗi lần một nét) và nét mới được chọn.
+- Dữ liệu: `'sauchart.draw.<MA>'` = `[{id, k:'h'|'v'|'t', t1,p1,t2,p2, mau, w:1|2|3, ls:'solid'|'dash', extR?, extL?}]`, lưu (time chart = giây UTC + LECH_GIO, price) gốc, dùng chung mọi khung giờ của mã; đường ngang chỉ có p1, đường dọc chỉ có t1. Sao lưu/khôi phục (bảng Fib) mang theo trường `draw`; `kvChuanHoa()` làm sạch dữ liệu.
+- `KeVePrimitive` gắn vào `nenSeries` SAU Fib (vẽ đè Fib, dưới popup DOM), có `priceAxisViews` (nhãn giá đường ngang) và `timeAxisViews` (nhãn thời gian đường dọc). Tọa độ x qua `kvTimeToX()` (timeToIndex + nội suy giữa 2 nến + ngoại suy ngoài dữ liệu, KHÔNG dùng `timeToCoordinate`), y qua `priceToCoordinate` (đúng cả Regular/Logarithmic).
+- LƯU Ý: `timeScale().logicalToCoordinate()` chỉ đúng với chỉ số NGUYÊN (chỉ số lẻ trả 0) → luôn dùng `kvLogicalToX(idx)` khi chỉ số có thể lẻ (đã sửa cả `fibTimeToX` ngoại suy).
+- Tương tác (`kvOnPointerDown` gắn ở pha capture trên `#chart`, `touch-action: none`): pointerdown trúng nét (6px, cảm ứng 12px, chỉ trong pane nến) → chọn + kéo thân; trúng chấm neo trendline (10px) → kéo điểm; trúng vùng trống thì để chart kéo bình thường và thả không kéo → bỏ chọn (tự xử lý, không dựa vào click của thư viện). Delete/Backspace xóa, Esc bỏ chọn, Shift khóa ngang/dọc khi vẽ trendline. Thanh nhỏ `#kvThanh` (màu 10 ô `FIB_BANG_MAU`, độ dày 1/2/3, liền/đứt, kéo dài trái/phải cho trendline, xóa) bám nét đang chọn.
+- Chọn nét kẻ vẽ ↔ chọn Fib loại trừ nhau; vào chế độ Fib thì thoát chế độ kẻ vẽ và ngược lại. `kvTai()` gọi từ `napBieuDo()` và khi khôi phục dữ liệu.
+
 ## Co bó
 - Zone format: `{s: startMs, e: endMs}` (UTC ms) — dùng `z.s`/`z.e`, KHÔNG phải `z.from`/`z.to`.
 - `COBO_KHUNG` id dùng chữ thường: `h12`, `h8`, `h4`, `h2`, `h1`.
