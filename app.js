@@ -2551,6 +2551,7 @@ let kvDangVe = null;     // { k:'t', t1,p1,t2,p2,... } bản xem trước trendl
 let kvSelected = null;   // id nét đang chọn
 let kvDrag = null;       // { loai:'move'|'p1'|'p2', ... }
 let _kvCache = null;     // { ma, ds }
+let _kvHist = {};         // mã → { undo: [snapshot...], redo: [snapshot...] } (khai báo sớm vì kvTai() chạy từ napBieuDo() lúc khởi động)
 let kvP1Px = null;       // vị trí pixel điểm 1 (để phân biệt click-click và kéo)
 let kvChoTrong = null;   // pointerdown trong ruột hình chữ nhật chưa chọn (thả không kéo → chọn hình)
 let kvClickTrong = null; // pointerdown vào vùng trống khi đang có nét được chọn (thả không kéo → bỏ chọn)
@@ -3957,6 +3958,7 @@ function fibKhoiPhucFile(file) {
     if (kq.fibAlpha !== undefined) ghiBoNho('fibAlpha', kq.fibAlpha);
     if (kq.fibNhan !== undefined) ghiBoNho('fibNhan', kq.fibNhan);
     fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
+    kvHistReset();
     kvTai();
     fibDatThongBao(`Đã khôi phục Fib cho ${Object.keys(kq.fib).length} mã và nét vẽ cho ${Object.keys(kq.draw).length} mã.`);
   };
@@ -4793,17 +4795,63 @@ function kvBoChon() {
   kvVeThanh();
   if (kvPrim) kvPrim.update();
 }
+// ---------- Hoàn tác / Làm lại (theo từng mã, chỉ trong phiên) ----------
+// Mỗi thao tác của người dùng: chụp trạng thái TRƯỚC (kvChup), sửa, rồi kvGhiBuoc(truoc) để đẩy vào ngăn xếp undo.
+const KV_UNDO_MAX = 50;
+function kvHist() { return _kvHist[maHienTai] || (_kvHist[maHienTai] = { undo: [], redo: [] }); }
+function kvChup() { return JSON.stringify(kvLayDS()); }
+function kvGhiBuoc(truoc) {
+  if (truoc == null || truoc === kvChup()) return;
+  const h = kvHist();
+  h.undo.push(truoc);
+  if (h.undo.length > KV_UNDO_MAX) h.undo.shift();
+  h.redo = []; // thao tác mới sau khi hoàn tác → bỏ nhánh làm lại
+  kvCapNhatNutUndo();
+}
+function kvHistReset() { for (const k of Object.keys(_kvHist)) delete _kvHist[k]; kvCapNhatNutUndo(); }
+function kvCapNhatNutUndo() {
+  const h = _kvHist[maHienTai];
+  const u = document.getElementById('btnUndo'), r = document.getElementById('btnRedo');
+  if (u) u.disabled = !(h && h.undo.length);
+  if (r) r.disabled = !(h && h.redo.length);
+}
+function kvApDungSnapshot(snap) {
+  let ds = [];
+  try { ds = JSON.parse(snap).map(kvChuanHoa).filter(Boolean); } catch (e) { return; }
+  kvLuuDS(ds);
+  if (kvSelected && !ds.some((l) => l.id === kvSelected)) kvSelected = null; // nét không còn → bỏ chọn; còn thì giữ
+  kvVeThanh();
+  if (kvPrim) kvPrim.update();
+}
+function kvUndoRedo(huong) {
+  if (kvDrag) return;
+  if (kvMode) kvVaoMode(null); // đang chờ click để vẽ: thoát chế độ vẽ rồi mới hoàn tác
+  const h = kvHist();
+  const tu = huong < 0 ? h.undo : h.redo, den = huong < 0 ? h.redo : h.undo;
+  if (!tu.length) return;
+  den.push(kvChup());
+  if (den.length > KV_UNDO_MAX + 1) den.shift();
+  kvApDungSnapshot(tu.pop());
+  kvCapNhatNutUndo();
+}
+function kvUndo() { kvUndoRedo(-1); }
+function kvRedo() { kvUndoRedo(1); }
+
 function kvTao(props) {
   const ds = kvLayDS();
   const ln = kvChuanHoa(Object.assign({ id: fibMoiId() }, kvNetMacDinh(), props));
   if (!ln) return;
+  const truoc = kvChup();
   ds.push(ln);
   kvLuuDS(ds);
+  kvGhiBuoc(truoc);
   kvVaoMode(null);
   kvChon(ln.id);
 }
 function kvXoa(id) {
+  const truoc = kvChup();
   kvLuuDS(kvLayDS().filter((l) => l.id !== id));
+  kvGhiBuoc(truoc);
   if (kvSelected === id) kvSelected = null;
   kvVeThanh();
   if (kvPrim) kvPrim.update();
@@ -4843,8 +4891,10 @@ function kvClone(id) {
   }
   const ds = kvLayDS();
   const i = ds.findIndex((l) => l.id === id);
+  const truoc = kvChup();
   ds.splice(i + 1, 0, cp);
   kvLuuDS(ds);
+  kvGhiBuoc(truoc);
   kvChon(cp.id);
   return cp.id;
 }
@@ -4852,8 +4902,10 @@ function kvSua(id, patch) {
   const ds = kvLayDS();
   const ln = ds.find((l) => l.id === id);
   if (!ln) return;
+  const truoc = kvChup();
   Object.assign(ln, patch);
   kvLuuDS(ds);
+  kvGhiBuoc(truoc);
   kvVeThanh();
   if (kvPrim) kvPrim.update();
 }
@@ -4868,6 +4920,7 @@ function kvDongBoAlphaChung() {
 }
 function kvTai() {
   _kvCache = null;
+  kvCapNhatNutUndo();
   kvMode = null; kvPhase = 0; kvDangVe = null; kvP1Px = null; kvDrag = null; kvSelected = null;
   if (!kvPrim) return;
   kvCapNhatCuon();
@@ -4953,7 +5006,7 @@ function kvOnPointerDown(e) {
     loai = 'move';
   }
   const px = kvToaDo(ln);
-  kvDrag = { loai, id: ln.id, x0: x, y0: y, px, moved: false, iL: px.x1 <= px.x2 ? 1 : 2, iT: px.y1 <= px.y2 ? 1 : 2 };
+  kvDrag = { loai, id: ln.id, x0: x, y0: y, px, moved: false, truoc: kvChup(), iL: px.x1 <= px.x2 ? 1 : 2, iT: px.y1 <= px.y2 ? 1 : 2 };
   kvCapNhatCuon();
   e.preventDefault(); e.stopPropagation();
 }
@@ -5018,7 +5071,7 @@ function kvOnPointerUp(e) {
     kvClickTrong = null;
   }
   if (kvDrag) {
-    if (kvDrag.moved) kvLuuDS(kvLayDS());
+    if (kvDrag.moved) { kvLuuDS(kvLayDS()); kvGhiBuoc(kvDrag.truoc); } // một lần kéo = một bước
     kvDrag = null;
     kvCapNhatCuon();
     return;
@@ -5052,7 +5105,13 @@ function kvOnKeyDown(e) {
     else if (kvSelected) kvBoChon();
     return;
   }
-  if (!kvSelected || kvMode || kvDangNhap()) return;
+  if (kvDangNhap()) return;
+  const k = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    if (k === 'z') { e.preventDefault(); if (e.shiftKey) kvRedo(); else kvUndo(); return; }
+    if (k === 'y' && e.ctrlKey && !e.shiftKey) { e.preventDefault(); kvRedo(); return; }
+  }
+  if (!kvSelected || kvMode) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     kvXoa(kvSelected);
     e.preventDefault();
@@ -5163,11 +5222,18 @@ function kvKhoiDong() {
 
   // Thanh kéo độ đậm của nét đang chọn: đổi ngay khi kéo, không dựng lại thanh (để không ngắt thao tác kéo)
   if (bar) {
+    let kvSliderTruoc = null;
+    bar.addEventListener('change', (e) => {
+      if (!e.target.classList.contains('kv-al') && !e.target.classList.contains('kv-an')) return;
+      kvGhiBuoc(kvSliderTruoc);
+      kvSliderTruoc = null;
+    });
     bar.addEventListener('input', (e) => {
       const laNen = e.target.classList.contains('kv-an');
       if (!laNen && !e.target.classList.contains('kv-al')) return;
       const ln = kvTim(kvSelected);
       if (!ln) return;
+      if (kvSliderTruoc == null) kvSliderTruoc = kvChup(); // trạng thái trước lần kéo này
       if (laNen) {
         const pn = Math.max(0, Math.min(60, Number(e.target.value) || 0));
         ln.alphaNen = pn / 100;
@@ -5221,7 +5287,9 @@ function kvKhoiDong() {
       const n = kvLayDS().length;
       if (!n) { alert('Mã này chưa có nét vẽ nào.'); return; }
       if (!confirm(`Xóa tất cả ${n} nét vẽ của ${maHienTai}?`)) return;
+      const truoc = kvChup();
       kvLuuDS([]);
+      kvGhiBuoc(truoc);
       kvSelected = null;
       kvVeThanh();
       if (kvPrim) kvPrim.update();
@@ -5235,6 +5303,10 @@ function kvKhoiDong() {
       if (!trong && e.target !== btn) panel.hidden = true;
     });
   }
+  const bu = document.getElementById('btnUndo'), br = document.getElementById('btnRedo');
+  if (bu) bu.addEventListener('click', (e) => { e.stopPropagation(); kvUndo(); });
+  if (br) br.addEventListener('click', (e) => { e.stopPropagation(); kvRedo(); });
+  kvCapNhatNutUndo();
   kvCapNhatNut();
   kvPrim.update();
 }
@@ -5243,5 +5315,5 @@ fibKhoiDong();
 kvKhoiDong();
 
 // storage.js gọi khi vừa khôi phục dữ liệu Fib từ IndexedDB sau khi app đã chạy
-window.sauFibKhoiPhuc = function () { fibTai(); fibCapNhatLocHL(); kvTai(); };
+window.sauFibKhoiPhuc = function () { fibTai(); fibCapNhatLocHL(); kvHistReset(); kvTai(); };
 window.sauAppChay = true;

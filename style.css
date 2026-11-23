@@ -720,3 +720,5 @@ button { font-family: inherit; }
 .kv-an { width: 80px; margin: 0 2px; }
 .kv-anv { min-width: 30px; text-align: right; color: var(--text); font-size: 11px; }
 .kv-clone { display: inline-flex; align-items: center; justify-content: center; }
+#btnUndo, #btnRedo { padding: 6px 9px; font-size: 15px; line-height: 1; }
+.icon-btn:disabled { opacity: 0.35; cursor: default; }
