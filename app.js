@@ -4808,6 +4808,46 @@ function kvXoa(id) {
   kvVeThanh();
   if (kvPrim) kvPrim.update();
 }
+// Nhân bản nét/hình: dịch ~20px theo màn hình (giá quy ngược bằng coordinateToPrice nên đúng cả Regular/Log),
+// đường dọc/ngang chỉ dịch theo trục của chúng; luôn dịch ≥ 1 nến để không chồng khít bản gốc.
+function kvClone(id) {
+  const src = kvTim(id);
+  if (!src || !kvPrim) return null;
+  const D = 20;
+  let bw = 0;
+  try { bw = Math.abs(kvLogicalToX(1) - kvLogicalToX(0)); } catch (e) {}
+  const dx0 = Math.max(D, bw * 1.01);
+  const pw = chart.timeScale().width(), ph = chart.panes()[0].getHeight();
+  const c = kvToaDo(src);
+  const cp = JSON.parse(JSON.stringify(src));
+  cp.id = fibMoiId();
+  // hướng dịch: sang phải/xuống dưới; sát mép thì đảo chiều để bản sao vẫn nằm trong màn hình
+  const sx = (v) => (v != null && v + dx0 > pw - 4 ? -1 : 1);
+  const sy = (v) => (v != null && v + D > ph - 4 ? -1 : 1);
+  const gia = (y) => { const p = nenSeries.coordinateToPrice(y); return (p != null && isFinite(p)) ? p : null; };
+  if (src.k === 'h') {
+    if (c.y1 == null) return null;
+    const p = gia(c.y1 + sy(c.y1) * D);
+    if (p == null) return null;
+    cp.p1 = p;
+  } else if (src.k === 'v') {
+    if (c.x1 == null) return null;
+    cp.t1 = kvXToTime(c.x1 + sx(c.x1) * dx0);
+  } else {
+    if ([c.x1, c.y1, c.x2, c.y2].some((v) => v == null)) return null;
+    const dirX = (sx(c.x1) < 0 || sx(c.x2) < 0) ? -1 : 1, dirY = (sy(c.y1) < 0 || sy(c.y2) < 0) ? -1 : 1;
+    const p1 = gia(c.y1 + dirY * D), p2 = gia(c.y2 + dirY * D);
+    if (p1 == null || p2 == null) return null;
+    cp.t1 = kvXToTime(c.x1 + dirX * dx0); cp.p1 = p1;
+    cp.t2 = kvXToTime(c.x2 + dirX * dx0); cp.p2 = p2;
+  }
+  const ds = kvLayDS();
+  const i = ds.findIndex((l) => l.id === id);
+  ds.splice(i + 1, 0, cp);
+  kvLuuDS(ds);
+  kvChon(cp.id);
+  return cp.id;
+}
 function kvSua(id, patch) {
   const ds = kvLayDS();
   const ln = ds.find((l) => l.id === id);
@@ -4999,17 +5039,26 @@ function kvOnPointerCancel() {
   if ((kvMode === 't' || kvMode === 'r') && kvPhase === 1) { kvDangVe = null; kvPhase = 0; kvP1Px = null; if (kvPrim) kvPrim.update(); }
 }
 
+// Đang gõ chữ/số vào ô nhập (thanh kéo, ô tích không tính)
+function kvDangNhap() {
+  const a = document.activeElement;
+  if (!a) return false;
+  if (a.tagName === 'TEXTAREA' || a.isContentEditable) return true;
+  return a.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(a.type);
+}
 function kvOnKeyDown(e) {
-  const tag = document.activeElement && document.activeElement.tagName;
   if (e.key === 'Escape') {
     if (kvMode) kvVaoMode(null);
     else if (kvSelected) kvBoChon();
     return;
   }
-  if (kvSelected && !kvMode && (e.key === 'Delete' || e.key === 'Backspace')) {
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (!kvSelected || kvMode || kvDangNhap()) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
     kvXoa(kvSelected);
     e.preventDefault();
+  } else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && typeof e.key === 'string' && e.key.toLowerCase() === 'd') {
+    e.preventDefault(); // chặn "đánh dấu trang" của trình duyệt
+    if (!e.repeat) kvClone(kvSelected);
   }
 }
 
@@ -5044,7 +5093,9 @@ function kvVeThanh() {
     h += `<button class="kv-b${ln.extL ? ' on' : ''}" data-ext="extL" title="Kéo dài sang trái">⇤</button>`;
     h += `<button class="kv-b${ln.extR ? ' on' : ''}" data-ext="extR" title="Kéo dài sang phải">⇥</button>`;
   }
-  h += `<span class="kv-sep"></span><button class="kv-b kv-del" data-xoa="1" title="Xóa nét này">✕</button>`;
+  h += `<span class="kv-sep"></span>`;
+  h += `<button class="kv-b kv-clone" data-clone="1" title="Nhân bản (Ctrl/Cmd+D)" aria-label="Clone"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></svg></button>`;
+  h += `<button class="kv-b kv-del" data-xoa="1" title="Xóa nét này">✕</button>`;
   h += `<div class="kv-pal" style="display:none">` +
     FIB_BANG_MAU.map((m) => `<span class="kv-pc" data-mau="${m}" style="background:${m}${m === ln.mau ? ';outline:2px solid #fff;outline-offset:1px' : ''}"></span>`).join('') +
     `</div>`;
@@ -5093,7 +5144,7 @@ function kvKhoiDong() {
   if (bar) bar.addEventListener('click', (e) => {
     e.stopPropagation();
     const id = kvSelected;
-    const t = e.target.closest('[data-w],[data-ls],[data-ext],[data-xoa],.kv-sw,.kv-pc');
+    const t = e.target.closest('[data-w],[data-ls],[data-ext],[data-xoa],[data-clone],.kv-sw,.kv-pc');
     if (!t || !id) return;
     const ln = kvTim(id);
     if (!ln) return;
@@ -5101,6 +5152,7 @@ function kvKhoiDong() {
     if (t.dataset.w) kvSua(id, hcn ? { day: Number(t.dataset.w) } : { w: Number(t.dataset.w) });
     else if (t.dataset.ls) kvSua(id, hcn ? { kieu: t.dataset.ls } : { ls: t.dataset.ls });
     else if (t.dataset.ext) kvSua(id, { [t.dataset.ext]: !ln[t.dataset.ext] });
+    else if (t.dataset.clone) kvClone(id);
     else if (t.dataset.xoa) kvXoa(id);
     else if (t.classList.contains('kv-pc')) kvSua(id, { mau: t.dataset.mau });
     else if (t.classList.contains('kv-sw')) {
