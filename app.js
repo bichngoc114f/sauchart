@@ -2552,6 +2552,7 @@ let kvSelected = null;   // id nét đang chọn
 let kvDrag = null;       // { loai:'move'|'p1'|'p2', ... }
 let _kvCache = null;     // { ma, ds }
 let kvP1Px = null;       // vị trí pixel điểm 1 (để phân biệt click-click và kéo)
+let kvChoTrong = null;   // pointerdown trong ruột hình chữ nhật chưa chọn (thả không kéo → chọn hình)
 let kvClickTrong = null; // pointerdown vào vùng trống khi đang có nét được chọn (thả không kéo → bỏ chọn)
 
 function eaCoHoTro() { return EA_MA_HO_TRO.includes(maHienTai) || !!DANH_SACH_VN.find(x => x.ma === maHienTai); }
@@ -4380,6 +4381,19 @@ function kvOpt() {
 function kvChuanHoa(l) {
   const so = (v) => typeof v === 'number' && isFinite(v);
   if (!l || typeof l !== 'object' || typeof l.id !== 'string' || !l.id) return null;
+  if (l.k === 'r' || l.loai === 'rect') {
+    // Hình chữ nhật: {loai:'rect', t1,p1,t2,p2, mau, day, kieu, alpha, alphaNen, keoDaiPhai} (+ k:'r' để phân nhánh trong code)
+    if (![l.t1, l.p1, l.t2, l.p2].every(so)) return null;
+    return {
+      id: l.id, k: 'r', loai: 'rect', t1: l.t1, p1: l.p1, t2: l.t2, p2: l.p2,
+      mau: fibMauHopLe(l.mau) ? l.mau.toLowerCase() : FIB_BANG_MAU[0],
+      day: (l.day === 1 || l.day === 2 || l.day === 3) ? l.day : 1,
+      kieu: l.kieu === 'dash' ? 'dash' : 'solid',
+      alpha: (typeof l.alpha === 'number' && l.alpha >= 0.1 && l.alpha <= 1) ? Math.round(l.alpha * 100) / 100 : 1,
+      alphaNen: (so(l.alphaNen) && l.alphaNen >= 0 && l.alphaNen <= 0.6) ? Math.round(l.alphaNen * 100) / 100 : 0.15,
+      keoDaiPhai: l.keoDaiPhai === true,
+    };
+  }
   if (l.k !== 'h' && l.k !== 'v' && l.k !== 't') return null;
   const o = {
     id: l.id, k: l.k,
@@ -4500,37 +4514,91 @@ function kvTrongVung(x, y) {
     return x >= 0 && y >= 0 && x <= pw && y <= ph;
   } catch (e) { return false; }
 }
-function kvHitTest(x, y, thr) {
+// Hộp hình chữ nhật (đơn vị tùy sx, sy): l,t,b là cạnh; rr = cạnh phải thật; r = cạnh phải vẽ (tới hết màn hình nếu kéo dài)
+function kvRectBox(ln, sx, sy, W) {
+  const c = kvToaDo(ln);
+  if (c.x1 == null || c.y1 == null || c.x2 == null || c.y2 == null) return null;
+  const l = Math.min(c.x1, c.x2) * sx, rr = Math.max(c.x1, c.x2) * sx;
+  const t = Math.min(c.y1, c.y2) * sy, b = Math.max(c.y1, c.y2) * sy;
+  return { l, t, b, rr, r: ln.keoDaiPhai ? Math.max(rr, W + 4 * sx) : rr };
+}
+// Tám điểm kéo của hình chữ nhật (CSS px): 4 góc + 4 giữa cạnh
+function kvRectHandles(ln) {
+  const R = kvRectBox(ln, 1, 1, 0);
+  if (!R) return [];
+  const mx = (R.l + R.rr) / 2, my = (R.t + R.b) / 2;
+  return [
+    { n: 'nw', x: R.l, y: R.t }, { n: 'n', x: mx, y: R.t }, { n: 'ne', x: R.rr, y: R.t }, { n: 'e', x: R.rr, y: my },
+    { n: 'se', x: R.rr, y: R.b }, { n: 's', x: mx, y: R.b }, { n: 'sw', x: R.l, y: R.b }, { n: 'w', x: R.l, y: my },
+  ];
+}
+function kvVienRect(x, y, R, thr) {
+  if (x < R.l - thr || x > R.r + thr || y < R.t - thr || y > R.b + thr) return false;
+  return Math.abs(x - R.l) <= thr || Math.abs(y - R.t) <= thr || Math.abs(y - R.b) <= thr || (Math.abs(x - R.r) <= thr && R.r === R.rr);
+}
+// Trả về {id, vung:'vien'|'trong'}: ưu tiên mọi nét và VIỀN hình (từ nét vẽ sau cùng), sau đó mới tới RUỘT hình chữ nhật nhỏ nhất
+function kvHit(x, y, thr) {
   const ds = kvLayDS();
   const W = document.getElementById('chart').clientWidth;
   for (let i = ds.length - 1; i >= 0; i--) {
-    const ln = ds[i], c = kvToaDo(ln);
-    if (ln.k === 'h') { if (c.y1 != null && Math.abs(y - c.y1) <= thr) return ln.id; }
-    else if (ln.k === 'v') { if (c.x1 != null && Math.abs(x - c.x1) <= thr) return ln.id; }
+    const ln = ds[i];
+    if (ln.k === 'r') {
+      const R = kvRectBox(ln, 1, 1, W);
+      if (R && kvVienRect(x, y, R, thr)) return { id: ln.id, vung: 'vien' };
+      continue;
+    }
+    const c = kvToaDo(ln);
+    if (ln.k === 'h') { if (c.y1 != null && Math.abs(y - c.y1) <= thr) return { id: ln.id, vung: 'vien' }; }
+    else if (ln.k === 'v') { if (c.x1 != null && Math.abs(x - c.x1) <= thr) return { id: ln.id, vung: 'vien' }; }
     else if (c.x1 != null && c.y1 != null && c.x2 != null && c.y2 != null) {
       const s = kvTrendSeg(c.x1, c.y1, c.x2, c.y2, ln.extL, ln.extR, W);
-      if (kvKcDoan(x, y, s) <= thr) return ln.id;
+      if (kvKcDoan(x, y, s) <= thr) return { id: ln.id, vung: 'vien' };
     }
   }
-  return null;
+  let best = null, dt = Infinity;
+  for (const ln of ds) {
+    if (ln.k !== 'r') continue;
+    const R = kvRectBox(ln, 1, 1, W);
+    if (R && x >= R.l && x <= R.r && y >= R.t && y <= R.b) {
+      const dtich = (R.r - R.l) * (R.b - R.t);
+      if (dtich < dt) { dt = dtich; best = ln; }
+    }
+  }
+  return best ? { id: best.id, vung: 'trong' } : null;
+}
+function kvHitTest(x, y, thr) { const h = kvHit(x, y, thr); return h ? h.id : null; }
+// Click trúng Fib hoặc mũi tên EA thì nhường cho chúng (không chọn ruột hình chữ nhật đè lên)
+function kvNhuongChoKhac(x, y) {
+  try { if (fibGetShow() && fibHitTest(x, y, window.matchMedia('(pointer: coarse)').matches ? 14 : 8) !== null) return true; } catch (e) {}
+  try { if (caiDatEA.hist && caiDatEA.on && eaCoHoTro() && eaVaoTimGanNhat({ x, y })) return true; } catch (e) {}
+  return false;
 }
 function kvAnchorHit(ln, x, y, thr) {
-  if (!ln || ln.k !== 't') return null;
+  if (!ln) return null;
+  if (ln.k === 'r') {
+    for (const h of kvRectHandles(ln)) if (Math.hypot(x - h.x, y - h.y) <= thr) return h.n;
+    return null;
+  }
+  if (ln.k !== 't') return null;
   const c = kvToaDo(ln);
   if (c.x1 != null && c.y1 != null && Math.hypot(x - c.x1, y - c.y1) <= thr) return 'p1';
   if (c.x2 != null && c.y2 != null && Math.hypot(x - c.x2, y - c.y2) <= thr) return 'p2';
   return null;
 }
+const KV_CON_KEO = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
 function kvConTro(pt) {
   if (kvMode) return 'crosshair';
-  if (kvDrag) return 'move';
+  if (kvDrag) return KV_CON_KEO[kvDrag.loai] || 'move';
   if (!kvPrim || !pt || !kvTrongVung(pt.x, pt.y)) return null;
   if (!kvLayDS().length) return null;
   const thr = kvThr();
   const sel = kvTim(kvSelected);
-  if (sel && kvAnchorHit(sel, pt.x, pt.y, thr + 4)) return 'move';
-  const id = kvHitTest(pt.x, pt.y, thr);
-  return id ? (id === kvSelected ? 'move' : 'pointer') : null;
+  const neo = sel ? kvAnchorHit(sel, pt.x, pt.y, thr + 4) : null;
+  if (neo) return KV_CON_KEO[neo] || 'move';
+  const h = kvHit(pt.x, pt.y, thr);
+  if (!h) return null;
+  if (h.vung === 'trong') return h.id === kvSelected ? 'move' : null; // ruột hình chưa chọn: để chart kéo bình thường
+  return h.id === kvSelected ? 'move' : 'pointer';
 }
 
 // ---------- Vẽ ----------
@@ -4549,7 +4617,49 @@ function kvTrucView(coord, text, mau) {
   return { coordinate: () => coord, text: () => text, textColor: () => kvMauChu(mau), backColor: () => mau, visible: () => true, tickVisible: () => true };
 }
 
+// Nền tô của hình chữ nhật (vẽ ở lượt đầu để không phủ lên các nét khác)
+function kvVeRectNen(ctx, ln, hpr, vpr, W, xemTruoc) {
+  if (!(ln.alphaNen > 0)) return;
+  const R = kvRectBox(ln, hpr, vpr, W);
+  if (!R) return;
+  ctx.save();
+  ctx.globalAlpha = (xemTruoc ? 0.6 : 1) * ln.alphaNen * kvAlphaChung();
+  ctx.fillStyle = ln.mau;
+  ctx.fillRect(R.l, R.t, R.r - R.l, R.b - R.t);
+  ctx.restore();
+}
+function kvVeRectVien(ctx, ln, hpr, vpr, W, sel, xemTruoc) {
+  const R = kvRectBox(ln, hpr, vpr, W);
+  if (!R) return;
+  ctx.save();
+  ctx.globalAlpha = (xemTruoc ? 0.6 : 1) * (ln.alpha == null ? 1 : ln.alpha) * kvAlphaChung();
+  ctx.strokeStyle = ln.mau;
+  ctx.lineWidth = ((ln.day || 1) + (sel ? 1 : 0)) * hpr;
+  ctx.setLineDash(ln.kieu === 'dash' ? [6 * hpr, 4 * hpr] : []);
+  ctx.beginPath();
+  if (ln.keoDaiPhai) { ctx.moveTo(R.r, R.t); ctx.lineTo(R.l, R.t); ctx.lineTo(R.l, R.b); ctx.lineTo(R.r, R.b); }
+  else ctx.rect(R.l, R.t, R.r - R.l, R.b - R.t);
+  ctx.stroke();
+  if (sel) {
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    const mx = (R.l + R.rr) / 2, my = (R.t + R.b) / 2;
+    const cham = [[R.l, R.t, 5], [mx, R.t, 4], [R.rr, R.t, 5], [R.rr, my, 4], [R.rr, R.b, 5], [mx, R.b, 4], [R.l, R.b, 5], [R.l, my, 4]];
+    for (const [x, y, r] of cham) {
+      ctx.beginPath();
+      ctx.arc(x, y, r * hpr, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = ln.mau;
+      ctx.lineWidth = 2 * hpr;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function kvVeNet(ctx, ln, hpr, vpr, W, H, sel, xemTruoc) {
+  if (ln.k === 'r') { kvVeRectVien(ctx, ln, hpr, vpr, W, sel, xemTruoc); return; }
   const c = kvToaDo(ln);
   ctx.save();
   ctx.globalAlpha = (xemTruoc ? 0.6 : 1) * (ln.alpha == null ? 1 : ln.alpha) * kvAlphaChung();
@@ -4621,6 +4731,10 @@ class KeVePrimitive {
             target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hpr, verticalPixelRatio: vpr, bitmapSize }) => {
               const W = bitmapSize.width, H = bitmapSize.height;
               for (const ln of ds) {
+                if (ln.k === 'r') { try { kvVeRectNen(ctx, ln, hpr, vpr, W, false); } catch (e) {} }
+              }
+              if (kvDangVe && kvDangVe.k === 'r') { try { kvVeRectNen(ctx, kvDangVe, hpr, vpr, W, true); } catch (e) {} }
+              for (const ln of ds) {
                 try { kvVeNet(ctx, ln, hpr, vpr, W, H, ln.id === kvSelected, false); } catch (e) {}
               }
               if (kvDangVe) { try { kvVeNet(ctx, kvDangVe, hpr, vpr, W, H, false, true); } catch (e) {} }
@@ -4633,6 +4747,9 @@ class KeVePrimitive {
 }
 
 // ---------- Thao tác ----------
+function kvRectMacDinh() {
+  return { mau: FIB_BANG_MAU[0], day: 1, kieu: 'solid', alpha: 1, alphaNen: 0.15, keoDaiPhai: false };
+}
 function kvNetMacDinh() {
   const o = kvOpt();
   return { mau: FIB_BANG_MAU[0], w: 1, alpha: 1, ls: 'solid', extR: o.extR, extL: o.extL };
@@ -4647,7 +4764,8 @@ function kvCapNhatNut() {
   const hint = document.getElementById('kvHint');
   if (hint) {
     const t = { h: 'Bấm 1 lần để đặt đường ngang. Esc để hủy', v: 'Bấm 1 lần để đặt đường dọc. Esc để hủy',
-      t: 'Bấm điểm 1, rồi điểm 2 (giữ Shift để khóa ngang/dọc). Esc để hủy' }[kvMode];
+      t: 'Bấm điểm 1, rồi điểm 2 (giữ Shift để khóa ngang/dọc). Esc để hủy',
+      r: 'Bấm góc 1, rồi góc đối diện để vẽ hình chữ nhật. Esc để hủy' }[kvMode];
     hint.textContent = t || '';
     hint.style.display = t ? '' : 'none';
   }
@@ -4723,8 +4841,12 @@ function kvXuLyClick(param) {
   if (!kvPrim || !param.point) return false;
   const { x, y } = param.point;
   if (kvTrongVung(x, y)) {
-    const id = kvHitTest(x, y, kvThr());
-    if (id) { if (kvSelected !== id) kvChon(id); eaVaoDongBang(); return true; }
+    const h = kvHit(x, y, kvThr());
+    if (h && !(h.vung === 'trong' && kvNhuongChoKhac(x, y))) {
+      if (kvSelected !== h.id) kvChon(h.id);
+      eaVaoDongBang();
+      return true;
+    }
   }
   if (kvSelected) kvBoChon();
   return false;
@@ -4740,12 +4862,13 @@ function kvAnchorTrend(x, y, shift) {
 }
 function kvHoanTat(x, y, shift) {
   if (!kvDangVe) return;
-  const a = kvAnchorTrend(x, y, shift);
+  const hcn = kvMode === 'r';
+  const a = hcn ? kvXYToAnchor(x, y) : kvAnchorTrend(x, y, shift);
   if (!a) return;
   const x1 = kvTimeToX(kvDangVe.t1), y1 = nenSeries.priceToCoordinate(kvDangVe.p1);
   const x2 = kvTimeToX(a.t), y2 = nenSeries.priceToCoordinate(a.p);
   if (x1 != null && y1 != null && x2 != null && y2 != null && Math.hypot(x2 - x1, y2 - y1) < 3) return; // 2 điểm trùng nhau
-  kvTao({ k: 't', t1: kvDangVe.t1, p1: kvDangVe.p1, t2: a.t, p2: a.p });
+  kvTao({ k: hcn ? 'r' : 't', t1: kvDangVe.t1, p1: kvDangVe.p1, t2: a.t, p2: a.p });
 }
 
 function kvOnPointerDown(e) {
@@ -4759,7 +4882,9 @@ function kvOnPointerDown(e) {
     } else if (kvPhase === 0) {
       const a = kvXYToAnchor(x, y);
       if (a) {
-        kvDangVe = Object.assign({ id: '__prev__', k: 't', t1: a.t, p1: a.p, t2: a.t, p2: a.p }, kvNetMacDinh());
+        kvDangVe = kvMode === 'r'
+          ? Object.assign({ id: '__prev__', k: 'r', loai: 'rect', t1: a.t, p1: a.p, t2: a.t, p2: a.p }, kvRectMacDinh())
+          : Object.assign({ id: '__prev__', k: 't', t1: a.t, p1: a.p, t2: a.t, p2: a.p }, kvNetMacDinh());
         kvPhase = 1;
         kvP1Px = { x: e.clientX, y: e.clientY };
         if (kvPrim) kvPrim.update();
@@ -4775,13 +4900,20 @@ function kvOnPointerDown(e) {
   let ln = kvTim(kvSelected);
   let loai = ln ? kvAnchorHit(ln, x, y, thr + 4) : null;
   if (!loai) {
-    const id = kvHitTest(x, y, thr);
-    if (!id) { if (kvSelected) kvClickTrong = { x: e.clientX, y: e.clientY }; return; }
-    ln = kvTim(id);
-    if (kvSelected !== id) kvChon(id);
+    const h = kvHit(x, y, thr);
+    if (!h) { if (kvSelected) kvClickTrong = { x: e.clientX, y: e.clientY }; return; }
+    if (h.vung === 'trong' && h.id !== kvSelected) {
+      // ruột hình chữ nhật chưa chọn: không chiếm sự kiện (chart vẫn kéo/zoom được); thả không kéo thì mới chọn
+      if (!kvNhuongChoKhac(x, y)) kvChoTrong = { id: h.id, x: e.clientX, y: e.clientY };
+      else if (kvSelected) kvClickTrong = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    ln = kvTim(h.id);
+    if (kvSelected !== h.id) kvChon(h.id);
     loai = 'move';
   }
-  kvDrag = { loai, id: ln.id, x0: x, y0: y, px: kvToaDo(ln), moved: false };
+  const px = kvToaDo(ln);
+  kvDrag = { loai, id: ln.id, x0: x, y0: y, px, moved: false, iL: px.x1 <= px.x2 ? 1 : 2, iT: px.y1 <= px.y2 ? 1 : 2 };
   kvCapNhatCuon();
   e.preventDefault(); e.stopPropagation();
 }
@@ -4801,12 +4933,22 @@ function kvOnPointerMove(e) {
         if (p != null && isFinite(p)) ln.p1 = p;
       } else if (ln.k === 'v') {
         if (d.px.x1 != null) ln.t1 = kvXToTime(d.px.x1 + dx);
-      } else if ([d.px.x1, d.px.y1, d.px.x2, d.px.y2].every((v) => v != null)) {
+      } else if ([d.px.x1, d.px.y1, d.px.x2, d.px.y2].every((v) => v != null)) { // trendline và hình chữ nhật
         const p1 = nenSeries.coordinateToPrice(d.px.y1 + dy), p2 = nenSeries.coordinateToPrice(d.px.y2 + dy);
         if (p1 != null && p2 != null) {
           ln.t1 = kvXToTime(d.px.x1 + dx); ln.p1 = p1;
           ln.t2 = kvXToTime(d.px.x2 + dx); ln.p2 = p2;
         }
+      }
+    } else if (ln.k === 'r') {
+      // kéo chấm của hình chữ nhật: cạnh trái/phải đổi thời gian, cạnh trên/dưới đổi giá
+      const a = kvXYToAnchor(x, y);
+      if (a) {
+        const iR = 3 - d.iL, iB = 3 - d.iT, hd = d.loai;
+        if (hd.includes('w')) ln['t' + d.iL] = a.t;
+        if (hd.includes('e')) ln['t' + iR] = a.t;
+        if (hd.includes('n')) ln['p' + d.iT] = a.p;
+        if (hd.includes('s')) ln['p' + iB] = a.p;
       }
     } else {
       const a = kvXYToAnchor(x, y);
@@ -4818,14 +4960,18 @@ function kvOnPointerMove(e) {
     e.preventDefault();
     return;
   }
-  if (kvMode === 't' && kvPhase === 1 && kvDangVe) {
+  if ((kvMode === 't' || kvMode === 'r') && kvPhase === 1 && kvDangVe) {
     const { x, y } = fibGetXY(e);
-    const a = kvAnchorTrend(x, y, e.shiftKey);
+    const a = kvMode === 'r' ? kvXYToAnchor(x, y) : kvAnchorTrend(x, y, e.shiftKey);
     if (a) { kvDangVe.t2 = a.t; kvDangVe.p2 = a.p; if (kvPrim) kvPrim.update(); }
   }
 }
 
 function kvOnPointerUp(e) {
+  if (kvChoTrong) {
+    if (Math.hypot(e.clientX - kvChoTrong.x, e.clientY - kvChoTrong.y) < 5) kvChon(kvChoTrong.id);
+    kvChoTrong = null;
+  }
   if (kvClickTrong) {
     // click vào vùng trống (không kéo chart) → bỏ chọn; không phụ thuộc sự kiện click của thư viện biểu đồ
     if (Math.hypot(e.clientX - kvClickTrong.x, e.clientY - kvClickTrong.y) < 5) kvBoChon();
@@ -4837,7 +4983,7 @@ function kvOnPointerUp(e) {
     kvCapNhatCuon();
     return;
   }
-  if (kvMode === 't' && kvPhase === 1 && kvP1Px) {
+  if ((kvMode === 't' || kvMode === 'r') && kvPhase === 1 && kvP1Px) {
     // kéo từ điểm 1 sang điểm 2 rồi thả = hoàn tất; chỉ click (không kéo) thì chờ click điểm 2
     if (Math.hypot(e.clientX - kvP1Px.x, e.clientY - kvP1Px.y) > 5) {
       const { x, y } = fibGetXY(e);
@@ -4849,7 +4995,8 @@ function kvOnPointerUp(e) {
 
 function kvOnPointerCancel() {
   if (kvDrag) { _kvCache = null; kvDrag = null; kvCapNhatCuon(); if (kvPrim) kvPrim.update(); }
-  if (kvMode === 't' && kvPhase === 1) { kvDangVe = null; kvPhase = 0; kvP1Px = null; if (kvPrim) kvPrim.update(); }
+  kvChoTrong = null;
+  if ((kvMode === 't' || kvMode === 'r') && kvPhase === 1) { kvDangVe = null; kvPhase = 0; kvP1Px = null; if (kvPrim) kvPrim.update(); }
 }
 
 function kvOnKeyDown(e) {
@@ -4872,17 +5019,27 @@ function kvVeThanh() {
   if (!el) return;
   const ln = kvTim(kvSelected);
   if (!ln) { el.style.display = 'none'; return; }
+  const r = ln.k === 'r';
+  const day = r ? ln.day : ln.w, kieu = r ? ln.kieu : ln.ls;
   let h = `<span class="kv-sw" title="Màu"><i style="background:${ln.mau}"></i></span>`;
   h += `<span class="kv-sep"></span>`;
-  h += [1, 2, 3].map((w) => `<button class="kv-b${ln.w === w ? ' on' : ''}" data-w="${w}" title="Độ dày ${w}px">${w}</button>`).join('');
+  h += [1, 2, 3].map((w) => `<button class="kv-b${day === w ? ' on' : ''}" data-w="${w}" title="Độ dày ${w}px">${w}</button>`).join('');
   h += `<span class="kv-sep"></span>`;
-  h += `<button class="kv-b${ln.ls === 'solid' ? ' on' : ''}" data-ls="solid" title="Nét liền">━</button>`;
-  h += `<button class="kv-b${ln.ls === 'dash' ? ' on' : ''}" data-ls="dash" title="Nét đứt">┅</button>`;
+  h += `<button class="kv-b${kieu === 'solid' ? ' on' : ''}" data-ls="solid" title="Nét liền">━</button>`;
+  h += `<button class="kv-b${kieu === 'dash' ? ' on' : ''}" data-ls="dash" title="Nét đứt">┅</button>`;
   const al = Math.round((ln.alpha == null ? 1 : ln.alpha) * 100);
   h += `<span class="kv-sep"></span>`;
-  h += `<input type="range" class="kv-al" min="10" max="100" step="5" value="${al}" title="Độ đậm" style="touch-action:none">`;
-  h += `<span class="kv-alv" title="Độ đậm">${al}%</span>`;
-  if (ln.k === 't') {
+  if (r) h += `<span class="kv-lb">Viền</span>`;
+  h += `<input type="range" class="kv-al" min="10" max="100" step="5" value="${al}" title="${r ? 'Độ đậm viền' : 'Độ đậm'}" style="touch-action:none">`;
+  h += `<span class="kv-alv" title="${r ? 'Độ đậm viền' : 'Độ đậm'}">${al}%</span>`;
+  if (r) {
+    const an = Math.round((ln.alphaNen == null ? 0.15 : ln.alphaNen) * 100);
+    h += `<span class="kv-lb">Nền</span>`;
+    h += `<input type="range" class="kv-an" min="0" max="60" step="5" value="${an}" title="Độ đậm nền" style="touch-action:none">`;
+    h += `<span class="kv-anv" title="Độ đậm nền">${an}%</span>`;
+    h += `<span class="kv-sep"></span>`;
+    h += `<button class="kv-b${ln.keoDaiPhai ? ' on' : ''}" data-ext="keoDaiPhai" title="Kéo dài sang phải (hết màn hình)">⇥</button>`;
+  } else if (ln.k === 't') {
     h += `<span class="kv-sep"></span>`;
     h += `<button class="kv-b${ln.extL ? ' on' : ''}" data-ext="extL" title="Kéo dài sang trái">⇤</button>`;
     h += `<button class="kv-b${ln.extR ? ' on' : ''}" data-ext="extR" title="Kéo dài sang phải">⇥</button>`;
@@ -4909,7 +5066,7 @@ function kvCapNhatThanh() {
     let ax, ay;
     if (ln.k === 'h' && c.y1 != null) { ax = cw - bw - 90; ay = c.y1 - bh - 10; if (ay < 4) ay = c.y1 + 10; }
     else if (ln.k === 'v' && c.x1 != null) { ax = c.x1 + 10; ay = 10; }
-    else if (ln.k === 't' && c.x1 != null && c.x2 != null && c.y1 != null && c.y2 != null) {
+    else if ((ln.k === 't' || ln.k === 'r') && c.x1 != null && c.x2 != null && c.y1 != null && c.y2 != null) {
       ax = (c.x1 + c.x2) / 2 - bw / 2; ay = Math.min(c.y1, c.y2) - bh - 12;
       if (ay < 4) ay = Math.max(c.y1, c.y2) + 12;
     } else { ax = 8; ay = 8; }
@@ -4940,8 +5097,9 @@ function kvKhoiDong() {
     if (!t || !id) return;
     const ln = kvTim(id);
     if (!ln) return;
-    if (t.dataset.w) kvSua(id, { w: Number(t.dataset.w) });
-    else if (t.dataset.ls) kvSua(id, { ls: t.dataset.ls });
+    const hcn = ln.k === 'r';
+    if (t.dataset.w) kvSua(id, hcn ? { day: Number(t.dataset.w) } : { w: Number(t.dataset.w) });
+    else if (t.dataset.ls) kvSua(id, hcn ? { kieu: t.dataset.ls } : { ls: t.dataset.ls });
     else if (t.dataset.ext) kvSua(id, { [t.dataset.ext]: !ln[t.dataset.ext] });
     else if (t.dataset.xoa) kvXoa(id);
     else if (t.classList.contains('kv-pc')) kvSua(id, { mau: t.dataset.mau });
@@ -4954,9 +5112,19 @@ function kvKhoiDong() {
   // Thanh kéo độ đậm của nét đang chọn: đổi ngay khi kéo, không dựng lại thanh (để không ngắt thao tác kéo)
   if (bar) {
     bar.addEventListener('input', (e) => {
-      if (!e.target.classList.contains('kv-al')) return;
+      const laNen = e.target.classList.contains('kv-an');
+      if (!laNen && !e.target.classList.contains('kv-al')) return;
       const ln = kvTim(kvSelected);
       if (!ln) return;
+      if (laNen) {
+        const pn = Math.max(0, Math.min(60, Number(e.target.value) || 0));
+        ln.alphaNen = pn / 100;
+        const vn = bar.querySelector('.kv-anv');
+        if (vn) vn.textContent = pn + '%';
+        kvLuuDS(kvLayDS());
+        if (kvPrim) kvPrim.update();
+        return;
+      }
       const pct = Math.max(10, Math.min(100, Number(e.target.value) || 100));
       ln.alpha = pct / 100;
       const v = bar.querySelector('.kv-alv');

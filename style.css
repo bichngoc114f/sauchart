@@ -715,3 +715,7 @@ button { font-family: inherit; }
 .ve-alv { color: var(--text); }
 .kv-al { width: 90px; margin: 0 2px; }
 .kv-alv { min-width: 34px; text-align: right; color: var(--text); font-size: 11px; }
+.kv-thanh { flex-wrap: wrap; max-width: calc(100% - 12px); }
+.kv-lb { font-size: 11px; color: var(--muted); }
+.kv-an { width: 80px; margin: 0 2px; }
+.kv-anv { min-width: 30px; text-align: right; color: var(--text); font-size: 11px; }
