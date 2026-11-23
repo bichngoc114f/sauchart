@@ -131,7 +131,7 @@
   function apDungKhoiPhuc(khoiPhuc) {
     if (!khoiPhuc.length) return;
     if (!window.sauAppChay) return; // app.js chưa chạy → nó sẽ đọc thẳng dữ liệu đã khôi phục
-    const chiFib = khoiPhuc.every(function (k) { return k.indexOf(PREFIX + 'fib') === 0 || k.indexOf(PREFIX + 'draw.') === 0; });
+    const chiFib = khoiPhuc.every(function (k) { return k.indexOf(PREFIX + 'fib') === 0 || k.indexOf(PREFIX + 'draw') === 0; });
     if (chiFib && typeof window.sauFibKhoiPhuc === 'function') {
       try { window.sauFibKhoiPhuc(); } catch (e) {}
       return;

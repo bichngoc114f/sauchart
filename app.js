@@ -3845,7 +3845,7 @@ function fibDatThongBao(txt) {
 }
 
 function fibSaoLuuFile() {
-  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, draw: {}, fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet() };
+  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, draw: {}, drawAlpha: kvAlphaChung(), fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet() };
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -3902,6 +3902,10 @@ function fibKiemTraSaoLuu(data) {
     }
   }
   kq.draw = {};
+  if (data.drawAlpha !== undefined) {
+    if (typeof data.drawAlpha !== 'number' || !(data.drawAlpha >= 0.1 && data.drawAlpha <= 1)) return 'độ đậm nét vẽ (drawAlpha) không hợp lệ.';
+    kq.drawAlpha = data.drawAlpha;
+  }
   if (data.draw !== undefined) {
     if (!laObj(data.draw)) return 'mục draw (nét kẻ vẽ) không hợp lệ.';
     for (const ma of Object.keys(data.draw)) {
@@ -3948,6 +3952,7 @@ function fibKhoiPhucFile(file) {
     for (const ma of Object.keys(kq.fibShow)) ghiBoNho('fibShow.' + ma, kq.fibShow[ma]);
     for (const ma of Object.keys(kq.fibHopLuu)) ghiBoNho('fibHopLuu.' + ma, kq.fibHopLuu[ma]);
     for (const ma of Object.keys(kq.draw)) ghiBoNho('draw.' + ma, kq.draw[ma]);
+    if (kq.drawAlpha !== undefined) ghiBoNho('drawAlpha', kq.drawAlpha);
     if (kq.fibAlpha !== undefined) ghiBoNho('fibAlpha', kq.fibAlpha);
     if (kq.fibNhan !== undefined) ghiBoNho('fibNhan', kq.fibNhan);
     fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
@@ -4361,6 +4366,12 @@ function fibKhoiDong() {
 // series.priceToCoordinate (đúng cả Regular lẫn Logarithmic); tọa độ x qua kvTimeToX (xem bên dưới).
 // Nét: { id, k:'h'|'v'|'t', t1?, p1?, t2?, p2?, mau, w:1|2|3, ls:'solid'|'dash', extR?, extL? }
 
+// Hệ số độ đậm chung cho mọi nét vẽ (0.1–1, mặc định 1); alpha thực tế của nét = alpha riêng × hệ số chung
+function kvAlphaChung() {
+  const v = docBoNho('drawAlpha', 1);
+  return (typeof v === 'number' && v >= 0.1 && v <= 1) ? v : 1;
+}
+
 function kvOpt() {
   const o = docBoNho('veTuyChon', {});
   return { extR: !!(o && o.extR === true), extL: !!(o && o.extL === true) };
@@ -4374,6 +4385,7 @@ function kvChuanHoa(l) {
     id: l.id, k: l.k,
     mau: fibMauHopLe(l.mau) ? l.mau.toLowerCase() : FIB_BANG_MAU[0],
     w: (l.w === 1 || l.w === 2 || l.w === 3) ? l.w : 1,
+    alpha: (typeof l.alpha === 'number' && l.alpha >= 0.1 && l.alpha <= 1) ? Math.round(l.alpha * 100) / 100 : 1,
     ls: l.ls === 'dash' ? 'dash' : 'solid',
   };
   if (l.k === 'h') { if (!so(l.p1)) return null; o.p1 = l.p1; }
@@ -4540,7 +4552,7 @@ function kvTrucView(coord, text, mau) {
 function kvVeNet(ctx, ln, hpr, vpr, W, H, sel, xemTruoc) {
   const c = kvToaDo(ln);
   ctx.save();
-  ctx.globalAlpha = xemTruoc ? 0.6 : 1;
+  ctx.globalAlpha = (xemTruoc ? 0.6 : 1) * (ln.alpha == null ? 1 : ln.alpha) * kvAlphaChung();
   ctx.strokeStyle = ln.mau;
   ctx.lineWidth = ((ln.w || 1) + (sel ? 1 : 0)) * hpr;
   ctx.lineCap = 'butt';
@@ -4623,7 +4635,7 @@ class KeVePrimitive {
 // ---------- Thao tác ----------
 function kvNetMacDinh() {
   const o = kvOpt();
-  return { mau: FIB_BANG_MAU[0], w: 1, ls: 'solid', extR: o.extR, extL: o.extL };
+  return { mau: FIB_BANG_MAU[0], w: 1, alpha: 1, ls: 'solid', extR: o.extR, extL: o.extL };
 }
 function kvCapNhatCuon() {
   const khoa = !!(fibBatMode || kvMode || kvDrag || fibDragState);
@@ -4688,12 +4700,21 @@ function kvSua(id, patch) {
   if (kvPrim) kvPrim.update();
 }
 // Gọi từ napBieuDo()/khôi phục: đọc lại dữ liệu mã hiện tại, thoát chế độ vẽ, bỏ chọn
+function kvDongBoAlphaChung() {
+  const alC = document.getElementById('veAlphaChung');
+  if (!alC) return;
+  const pct = Math.round(kvAlphaChung() * 100);
+  alC.value = pct;
+  const v = document.getElementById('veAlphaChungVal');
+  if (v) v.textContent = pct + '%';
+}
 function kvTai() {
   _kvCache = null;
   kvMode = null; kvPhase = 0; kvDangVe = null; kvP1Px = null; kvDrag = null; kvSelected = null;
   if (!kvPrim) return;
   kvCapNhatCuon();
   kvCapNhatNut();
+  kvDongBoAlphaChung();
   kvVeThanh();
   kvPrim.update();
 }
@@ -4857,6 +4878,10 @@ function kvVeThanh() {
   h += `<span class="kv-sep"></span>`;
   h += `<button class="kv-b${ln.ls === 'solid' ? ' on' : ''}" data-ls="solid" title="Nét liền">━</button>`;
   h += `<button class="kv-b${ln.ls === 'dash' ? ' on' : ''}" data-ls="dash" title="Nét đứt">┅</button>`;
+  const al = Math.round((ln.alpha == null ? 1 : ln.alpha) * 100);
+  h += `<span class="kv-sep"></span>`;
+  h += `<input type="range" class="kv-al" min="10" max="100" step="5" value="${al}" title="Độ đậm" style="touch-action:none">`;
+  h += `<span class="kv-alv" title="Độ đậm">${al}%</span>`;
   if (ln.k === 't') {
     h += `<span class="kv-sep"></span>`;
     h += `<button class="kv-b${ln.extL ? ' on' : ''}" data-ext="extL" title="Kéo dài sang trái">⇤</button>`;
@@ -4926,6 +4951,21 @@ function kvKhoiDong() {
     }
   });
 
+  // Thanh kéo độ đậm của nét đang chọn: đổi ngay khi kéo, không dựng lại thanh (để không ngắt thao tác kéo)
+  if (bar) {
+    bar.addEventListener('input', (e) => {
+      if (!e.target.classList.contains('kv-al')) return;
+      const ln = kvTim(kvSelected);
+      if (!ln) return;
+      const pct = Math.max(10, Math.min(100, Number(e.target.value) || 100));
+      ln.alpha = pct / 100;
+      const v = bar.querySelector('.kv-alv');
+      if (v) v.textContent = pct + '%';
+      kvLuuDS(kvLayDS());
+      if (kvPrim) kvPrim.update();
+    });
+  }
+
   // Nút "Vẽ" + menu
   const btn = document.getElementById('btnVe');
   const panel = document.getElementById('panelVe');
@@ -4941,11 +4981,21 @@ function kvKhoiDong() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (kvMode) { kvVaoMode(null); return; } // bấm lại nút để hủy chế độ vẽ
+      kvDongBoAlphaChung();
       panel.hidden = !panel.hidden;
     });
     panel.querySelectorAll('.ve-item[data-tool]').forEach((it) => {
       it.onclick = () => { panel.hidden = true; kvVaoMode(it.dataset.tool); };
     });
+    const alC = document.getElementById('veAlphaChung');
+    if (alC) alC.oninput = () => {
+      const pct = Math.max(10, Math.min(100, Number(alC.value) || 100));
+      ghiBoNho('drawAlpha', pct / 100);
+      const v = document.getElementById('veAlphaChungVal');
+      if (v) v.textContent = pct + '%';
+      if (kvPrim) kvPrim.update();
+    };
+    kvDongBoAlphaChung();
     const xoaTatCa = document.getElementById('veXoaTatCa');
     if (xoaTatCa) xoaTatCa.onclick = () => {
       const n = kvLayDS().length;
