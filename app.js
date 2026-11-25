@@ -156,6 +156,7 @@ let khungHienTai = (_lanCuoi && typeof _lanCuoi.khung === 'string' && _lanCuoi.k
 if (![...DANH_SACH_MA, ...DANH_SACH_VN].some((x) => x.ma === maHienTai)) maHienTai = 'BTCUSDT';
 if (![...KHUNG_GIO, ...KHUNG_GIO_VN].some((x) => x[0] === khungHienTai)) khungHienTai = '1h';
 
+let _maDaNap = null;   // mã của lần nạp biểu đồ thành công gần nhất (để biết khi nào là ĐỔI MÃ)
 let duLieuNen = [];    // nến của biểu đồ
 let nenTienTo = [];    // nến 1H từ đầu năm tới trước nến đầu tiên — chỉ để tính VWAP Năm/Quý
 let ketQua = null;     // kết quả tính chỉ báo gần nhất
@@ -1158,6 +1159,32 @@ function timNen(t) {
   return -1;
 }
 
+// Bật lại tự co giãn cho thang giá của mọi pane (nến chính + RSI...). Không đụng chế độ Regular/Logarithmic.
+function datLaiThangGia() {
+  try {
+    const n = chart.panes().length;
+    for (let i = 0; i < n; i++) chart.priceScale('right', i).applyOptions({ autoScale: true });
+  } catch (e) {}
+}
+// Thang giá pane nến đang thủ công mà đã lệch khỏi dữ liệu đang xem (vd. sau khi đổi khung) → bật lại autoScale
+function datLaiThangGiaNeuLech() {
+  requestAnimationFrame(() => {
+    try {
+      if (chart.priceScale('right').options().autoScale) return;
+      const H = chart.panes()[0].getHeight();
+      const top = nenSeries.coordinateToPrice(0), bot = nenSeries.coordinateToPrice(H);
+      const lr = chart.timeScale().getVisibleLogicalRange();
+      if (top == null || bot == null || !lr) return;
+      const vis = duLieuNen.slice(Math.max(0, Math.floor(lr.from)), Math.ceil(lr.to) + 1);
+      if (!vis.length) return;
+      const lo = Math.min(...vis.map((c) => c.low)), hi = Math.max(...vis.map((c) => c.high));
+      const span = top - bot;
+      // dữ liệu nằm ngoài thang, hoặc chiếm quá nhỏ/quá lớn so với thang
+      if (hi < bot || lo > top || (hi - lo) < span * 0.02 || (hi - lo) > span * 20) datLaiThangGia();
+    } catch (e) {}
+  });
+}
+
 // Tải lại toàn bộ biểu đồ khi đổi mã / khung giờ
 async function napBieuDo() {
   veNutKhungGio(); // danh sách khung theo loại mã; khung không hợp lệ (vd 6H cho mã VN) được đưa về mặc định
@@ -1206,6 +1233,11 @@ async function napBieuDo() {
     veToanBo();
     if (fibPrim) fibPrim.update();
     chart.timeScale().setVisibleLogicalRange({ from: nen.length - 150, to: nen.length + 5 });
+    // Đổi MÃ → bật lại autoScale cho mọi thang giá (kéo trục giá làm autoScale tắt và không tự bật lại);
+    // chỉ đổi KHUNG cùng mã → giữ nguyên, trừ khi thang giá đã lệch khỏi dữ liệu
+    const doiMa = _maDaNap !== maHienTai;
+    _maDaNap = maHienTai;
+    if (doiMa) datLaiThangGia(); else datLaiThangGiaNeuLech();
     capNhatLegend(duLieuNen.length - 1);
     document.getElementById('symbolPrice').textContent = dinhDangGia(nen[nen.length - 1].close);
     if (!infoVN) {
