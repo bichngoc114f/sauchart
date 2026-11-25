@@ -3470,6 +3470,8 @@ const FIB_LEVELS = [
   { r: 0 }, { r: 0.236 }, { r: 0.382 }, { r: 0.5 }, { r: 0.618 },
   { r: 0.786 }, { r: 1 }, { r: 1.618 }, { r: 2.618 },
 ];
+// Chế độ "chỉ 3 mức": chỉ giữ các mức chính này (sửa danh sách ở đây nếu muốn đổi bộ 3 mức)
+const FIB_MUC_3 = [0.382, 0.5, 0.618];
 
 // Kiểu Đa sắc: mỗi bộ Fib một màu (fb.mau) lấy từ bảng này; trắng/ghi dành cho Đơn sắc
 const FIB_BANG_MAU = [
@@ -3508,6 +3510,9 @@ function fibGetAlpha() {
   return (typeof v === 'number' && v >= 0.05 && v <= 1) ? v : FIB_DUONG_ALPHA;
 }
 function fibNhanGet() { return docBoNho('fibNhan', false) === true; }
+function fibMuc3Get() { return docBoNho('fibMuc3', false) === true; }
+// Danh sách mức đang được dùng (vẽ, bấm chọn, tính hợp lưu): đủ mức hoặc chỉ 3 mức chính
+function fibCacMuc() { return fibMuc3Get() ? FIB_LEVELS.filter((l) => FIB_MUC_3.includes(l.r)) : FIB_LEVELS; }
 
 // Gộp các lần vẽ lại khi kéo thanh độ đậm
 let _fibRaf = 0;
@@ -3546,7 +3551,7 @@ function fibTinhHopLuu() {
   const pts = [];
   for (const fb of fibLayDS()) {
     if (fb.hidden || Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
-    for (const lv of FIB_LEVELS) {
+    for (const lv of fibCacMuc()) {
       pts.push({ p: fb.p2 + (fb.p1 - fb.p2) * lv.r, r: lv.r, fbId: fb.id });
     }
   }
@@ -3641,7 +3646,7 @@ class FibPrimitive {
                 }
 
                 // Tính tọa độ y và màu của từng mức (chỉ phụ thuộc vào giá)
-                const levs = FIB_LEVELS.map(lv => {
+                const levs = fibCacMuc().map(lv => {
                   const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
                   const yc = self._series.priceToCoordinate(p);
                   const mau = isMono ? '#e0e0e0' : mauFib;
@@ -3816,7 +3821,7 @@ function fibHitTest(x, y, thr) {
   for (let i = ds.length - 1; i >= 0; i--) {
     const fb = ds[i];
     if (fb.hidden || Math.abs(fb.p1 - fb.p2) < 1e-9) continue;
-    for (const lv of FIB_LEVELS) {
+    for (const lv of fibCacMuc()) {
       if (hlKeys && !hlKeys.has(fb.id + '|' + lv.r)) continue;
       const p = fb.p2 + (fb.p1 - fb.p2) * lv.r;
       const yc = nenSeries.priceToCoordinate(p);
@@ -3916,7 +3921,7 @@ function fibDatThongBao(txt) {
 }
 
 function fibSaoLuuFile() {
-  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, draw: {}, drawAlpha: kvAlphaChung(), fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet() };
+  const out = { phienBan: 1, ts: Date.now(), fib: {}, fibShow: {}, fibHopLuu: {}, draw: {}, drawAlpha: kvAlphaChung(), fibAlpha: fibGetAlpha(), fibNhan: fibNhanGet(), fibMuc3: fibMuc3Get() };
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -4002,6 +4007,10 @@ function fibKiemTraSaoLuu(data) {
     if (typeof data.fibAlpha !== 'number' || !(data.fibAlpha >= 0.05 && data.fibAlpha <= 1)) return 'độ đậm vạch Fib (fibAlpha) không hợp lệ.';
     kq.fibAlpha = data.fibAlpha;
   }
+  if (data.fibMuc3 !== undefined) {
+    if (typeof data.fibMuc3 !== 'boolean') return 'cài đặt chế độ 3 mức (fibMuc3) không hợp lệ.';
+    kq.fibMuc3 = data.fibMuc3;
+  }
   if (data.fibNhan !== undefined) {
     if (typeof data.fibNhan !== 'boolean') return 'cài đặt nhãn tỉ lệ (fibNhan) không hợp lệ.';
     kq.fibNhan = data.fibNhan;
@@ -4026,6 +4035,7 @@ function fibKhoiPhucFile(file) {
     if (kq.drawAlpha !== undefined) ghiBoNho('drawAlpha', kq.drawAlpha);
     if (kq.fibAlpha !== undefined) ghiBoNho('fibAlpha', kq.fibAlpha);
     if (kq.fibNhan !== undefined) ghiBoNho('fibNhan', kq.fibNhan);
+    if (kq.fibMuc3 !== undefined) ghiBoNho('fibMuc3', kq.fibMuc3);
     fibTai(); // đọc lại từ bộ nhớ, vẽ lại biểu đồ và danh sách
     kvHistReset();
     kvTai();
@@ -4075,6 +4085,10 @@ function fibVePanel() {
     `<div style="padding:0 14px 6px">` +
     `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
     `<input type="checkbox" id="fibNhanChk"${fibNhanGet() ? ' checked' : ''}> Hiện số dải Fib (0.5, 0.618...)</label>` +
+    `</div>` +
+    `<div style="padding:0 14px 6px">` +
+    `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
+    `<input type="checkbox" id="fibMuc3Chk"${fibMuc3Get() ? ' checked' : ''}> Chỉ hiện 3 mức (0.382 · 0.5 · 0.618)</label>` +
     `</div>`;
 
   if (!ds.length) {
@@ -4155,6 +4169,13 @@ function fibVePanel() {
   const nhanChk = document.getElementById('fibNhanChk');
   if (nhanChk) nhanChk.onchange = () => {
     ghiBoNho('fibNhan', nhanChk.checked);
+    fibVeLaiRaf();
+  };
+
+  const muc3Chk = document.getElementById('fibMuc3Chk');
+  if (muc3Chk) muc3Chk.onchange = () => {
+    ghiBoNho('fibMuc3', muc3Chk.checked);
+    fibCapNhatLocHL(); // nhóm hợp lưu đổi theo bộ mức đang dùng
     fibVeLaiRaf();
   };
 
