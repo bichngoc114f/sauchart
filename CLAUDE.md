@@ -5,6 +5,10 @@ Mỗi khi commit có sửa bất kỳ file nào trong repo (app.js, style.css, i
 Dùng định dạng ngày-giờ UTC: YYYYMMDDHHММ (ví dụ `?v=202611051430`).
 KHÔNG thêm `?v=` vào URL ngoài (https://...), icon, manifest.
 
+## Khung thời gian
+- Thanh công cụ chỉ có MỘT nút `#btnKhung` (nhãn khung hiện tại + ▾, lấy từ `khungLabel()`); bấm mở menu thả xuống `#tfMenu` (position fixed, tự kẹp trong khung nhìn, cuộn khi màn hình thấp) liệt kê toàn bộ `KHUNG_GIO` (crypto) hoặc `KHUNG_GIO_VN` (mã VN), khung đang dùng được tô sáng + ✓. Chọn → `khungHienTai` đổi + `napBieuDo()`, menu đóng; bấm ra ngoài / Esc / đổi cỡ cửa sổ cũng đóng. `veNutKhungGio()` dựng lại nút + menu và được gọi ở ĐẦU `napBieuDo()` để danh sách khớp loại mã (khung không có trong danh sách mới, vd 6H khi sang mã VN, tự về `1d`). Nhớ khung cuối qua `lanCuoi` như cũ. Không có phím tắt khung.
+- Khung 6H (`'6h'`, nhãn `6H`, giữa 4H và 8H) CHỈ có cho crypto: Binance có sẵn interval `6h` nên `goiBinance` gọi trực tiếp (cùng đường REST/WS `kline_6h`/fallback OKX `6H` như 2H/4H/8H/12H); đã thêm `6h` vào `binanceIntervalToOKX`, `_coboKhungMs`, `durMap` của `tinhKetThucNen`. 6H chỉ để XEM: `COBO_KHUNG` (h12/h8/h4/h2/h1) và logic EA KHÔNG đổi. Mã VN không có 6H vì phiên giao dịch 09:00–15:00 chỉ dài 6 giờ: nến 6H gộp từ H1 trùng đúng nến D (hoặc trùng H4 theo phiên sáng/chiều) nên không thêm.
+
 ## Thang giá
 - Nút hình lục giác `#btnThangGia` ở góc dưới-trái cột giá (ngang hàng trục thời gian), menu `#popupThangGia`: Regular (mode 0, mặc định) / Logarithmic (mode 1). `apDungCheDoThangGia()` gọi `chart.priceScale('right').applyOptions({mode})` — chỉ pane nến chính, RSI giữ nguyên. Khóa toàn cục `'sauchart.priceScaleMode'` (0/1), áp lại ở cuối `taoSeries()` nên đổi mã/khung vẫn giữ.
 - Vị trí nút/menu tính trong `capNhatNutThangGia()` từ `priceScale('right').width()` và `timeScale().height()`; gọi từ `capNhatNhanGia()` và `ResizeObserver` trên `#chart`.

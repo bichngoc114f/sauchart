@@ -53,7 +53,7 @@ const DANH_SACH_VN = [
 // [mã Binance, nhãn hiển thị]
 const KHUNG_GIO = [
   ['15m', '15m'], ['30m', '30m'],
-  ['1h', '1H'], ['2h', '2H'], ['4h', '4H'], ['8h', '8H'], ['12h', '12H'],
+  ['1h', '1H'], ['2h', '2H'], ['4h', '4H'], ['6h', '6H'], ['8h', '8H'], ['12h', '12H'],
   ['1d', '1D'], ['2d', '2D'], ['3d', '3D'], ['1w', '1W'], ['2w', '2W'], ['1M', 'M'],
 ];
 
@@ -474,7 +474,7 @@ function binanceSymToOKX(ma) {
 }
 // Chuyển interval Binance → OKX: 1h→1H, 2d→2D, v.v.
 function binanceIntervalToOKX(kh) {
-  const MAP = {'1h':'1H','2h':'2H','4h':'4H','8h':'8H','12h':'12H',
+  const MAP = {'1h':'1H','2h':'2H','4h':'4H','6h':'6H','8h':'8H','12h':'12H',
                '1d':'1D','2d':'2D','3d':'3D','1w':'1W'};
   return MAP[kh] || kh;
 }
@@ -1160,6 +1160,7 @@ function timNen(t) {
 
 // Tải lại toàn bộ biểu đồ khi đổi mã / khung giờ
 async function napBieuDo() {
+  veNutKhungGio(); // danh sách khung theo loại mã; khung không hợp lệ (vd 6H cho mã VN) được đưa về mặc định
   eaVaoDongBang();
   fibTai();
   kvTai();
@@ -1444,7 +1445,7 @@ function coboBitCount(mask) {
 
 function _coboKhungMs() {
   const map = {'15m':900000,'30m':1800000,'1h':3600000,'2h':7200000,'4h':14400000,
-    '8h':28800000,'12h':43200000,'1d':86400000,'2d':172800000,'3d':259200000,
+    '6h':21600000,'8h':28800000,'12h':43200000,'1d':86400000,'2d':172800000,'3d':259200000,
     '1w':604800000,'2w':1209600000};
   return map[khungHienTai] || 2635200000; // 1M ≈ 30.5 ngày
 }
@@ -2142,31 +2143,67 @@ function coboCapNhatPanel() {
 }
 
 
-// ---------- 8. NÚT KHUNG GIỜ ----------
+// ---------- 8. KHUNG GIỜ (một nút + menu thả xuống) ----------
+function dongMenuKhung() {
+  const m = document.getElementById('tfMenu'), b = document.getElementById('btnKhung');
+  if (m) m.style.display = 'none';
+  if (b) b.classList.remove('active');
+}
+// Menu cố định (fixed) bám dưới nút, tự kẹp trong khung nhìn để không tràn ra ngoài trên màn hình nhỏ
+function moMenuKhung() {
+  const m = document.getElementById('tfMenu'), b = document.getElementById('btnKhung');
+  if (!m || !b) return;
+  m.style.display = 'block';
+  b.classList.add('active');
+  const r = b.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  m.style.maxHeight = Math.max(120, vh - r.bottom - 16) + 'px';
+  const w = m.offsetWidth;
+  m.style.left = Math.max(8, Math.min(r.left, vw - w - 8)) + 'px';
+  m.style.top = Math.round(r.bottom + 4) + 'px';
+  const act = m.querySelector('.tf-item.active');
+  if (act) act.scrollIntoView({ block: 'nearest' });
+}
 function veNutKhungGio() {
-  const box = document.getElementById('timeframes');
-  box.innerHTML = '';
   const infoVN = DANH_SACH_VN.find((x) => x.ma === maHienTai);
   const list = infoVN ? KHUNG_GIO_VN : KHUNG_GIO;
   // Nếu khung hiện tại không có trong danh sách mới → reset về mặc định
   if (!list.some((x) => x[0] === khungHienTai)) {
     khungHienTai = list[1][0]; // '1d' cho VN, '1d' cho crypto
   }
+  const btn = document.getElementById('btnKhung'), menu = document.getElementById('tfMenu');
+  if (!btn || !menu) return;
+  btn.textContent = khungLabel() + ' ▾';
+  menu.innerHTML = '';
   list.forEach(([id, nhan]) => {
-    const btn = document.createElement('button');
-    btn.textContent = nhan;
-    if (id === khungHienTai) btn.classList.add('active');
-    btn.onclick = () => {
+    const it = document.createElement('div');
+    it.className = 'tf-item' + (id === khungHienTai ? ' active' : '');
+    it.dataset.id = id;
+    it.setAttribute('role', 'menuitemradio');
+    it.innerHTML = `<span class="tf-tick">✓</span>${nhan}`;
+    it.onclick = (e) => {
+      e.stopPropagation();
+      dongMenuKhung();
       if (khungHienTai === id) return;
       khungHienTai = id;
       veNutKhungGio();
       napBieuDo();
     };
-    box.appendChild(btn);
+    menu.appendChild(it);
   });
-  const nut = box.querySelector('.active');
-  if (nut) nut.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
+(function () {
+  const btn = document.getElementById('btnKhung'), menu = document.getElementById('tfMenu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.style.display === 'block') dongMenuKhung(); else moMenuKhung();
+  });
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', dongMenuKhung);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') dongMenuKhung(); });
+  window.addEventListener('resize', dongMenuKhung);
+}());
 
 // ---------- 9. WATCHLIST ----------
 function taoWlRow(box, ma, ten, nhan) {
@@ -2319,7 +2356,7 @@ function tinhKetThucNen() {
     const openUTC = last.time - 7 * 3600;
     const durMap = {
       '15m': 900, '30m': 1800,
-      '1h': 3600, '2h': 7200, '4h': 14400, '8h': 28800, '12h': 43200,
+      '1h': 3600, '2h': 7200, '4h': 14400, '6h': 21600, '8h': 28800, '12h': 43200,
       '1d': 86400, '2d': 172800, '3d': 259200, '1w': 604800, '2w': 1209600,
     };
     let closeUTC;
