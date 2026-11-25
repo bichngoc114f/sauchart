@@ -3470,8 +3470,8 @@ const FIB_LEVELS = [
   { r: 0 }, { r: 0.236 }, { r: 0.382 }, { r: 0.5 }, { r: 0.618 },
   { r: 0.786 }, { r: 1 }, { r: 1.618 }, { r: 2.618 },
 ];
-// Chế độ "chỉ 3 mức": chỉ giữ các mức chính này (sửa danh sách ở đây nếu muốn đổi bộ 3 mức)
-const FIB_MUC_3 = [0.382, 0.5, 0.618];
+// Chế độ "chỉ 3 mức": 3 mức chính + 2 mốc đầu/cuối (0 và 1) luôn giữ (sửa danh sách ở đây nếu muốn đổi)
+const FIB_MUC_3 = [0, 0.382, 0.5, 0.618, 1];
 
 // Kiểu Đa sắc: mỗi bộ Fib một màu (fb.mau) lấy từ bảng này; trắng/ghi dành cho Đơn sắc
 const FIB_BANG_MAU = [
@@ -4088,7 +4088,7 @@ function fibVePanel() {
     `</div>` +
     `<div style="padding:0 14px 6px">` +
     `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">` +
-    `<input type="checkbox" id="fibMuc3Chk"${fibMuc3Get() ? ' checked' : ''}> Chỉ hiện 3 mức (0.382 · 0.5 · 0.618)</label>` +
+    `<input type="checkbox" id="fibMuc3Chk"${fibMuc3Get() ? ' checked' : ''}> Chỉ hiện 3 mức (0.382 · 0.5 · 0.618) + mốc 0 và 1</label>` +
     `</div>`;
 
   if (!ds.length) {
